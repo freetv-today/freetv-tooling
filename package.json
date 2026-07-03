@@ -1,6 +1,13 @@
 {
-  "name": "freetv-tooling",
-  "version": "0.1.0",
+	"name": "freetv-tooling",
+	"version": "1.0.0-beta",
+	"description": "Tools to manage the build, testing, and deployment process of freetv-viewer, freetv-server, and freetv-data.",
+	"author": "Ken Dawson",
+	"license": "GPL-3.0-only",
+	"homepage": "https://freetv.today",
+	"reponsitory": "https://github.com/freetv-today/freetv-tooling",
+	"bugs": "https://github.com/freetv-today/freetv-tooling/issues",
+	"private": false,
   "private": true,
   "type": "module",
   "scripts": {
