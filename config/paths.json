@@ -5,6 +5,11 @@
     "server": "../freetv-server",
     "data": "../freetv-data"
   },
+  "staging": {
+    "root": "staging",
+    "data": "data",
+    "thumbnails": "thumbnails"
+  },
   "output": {
     "root": "../production",
     "assets": "../production/assets",

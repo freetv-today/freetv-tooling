@@ -16,11 +16,13 @@
     "dev:all": "node scripts/dev-all.js",
     "build:view": "node scripts/build-view.js",
     "build:server": "node scripts/build-server.js",
-    "build:data": "node scripts/build-data.js",
-    "build:all": "npm run build:view && npm run build:server && npm run build:data && npm run assemble && npm run verify",
+    "stage:exports": "node scripts/build-data.js",
+    "build:data": "npm run stage:exports",
+    "build:all": "npm run build:view && npm run build:server && npm run assemble && npm run verify",
     "assemble": "node scripts/assemble.js",
     "verify": "node scripts/verify.js",
-    "status": "node scripts/status.js"
+    "status": "node scripts/status.js",
+    "test": "node --test"
   },
   "dependencies": {
     "fs-extra": "^11.0.1"
