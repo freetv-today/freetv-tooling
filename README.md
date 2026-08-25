@@ -63,7 +63,19 @@ The exact paths are controlled by `config/paths.json`.
 - `npm run assemble` — creates and validates the full local production package.
 - `npm run test:assembly` — runs focused production assembler contract tests.
 - `npm run verify` — independently verifies an already-assembled local production package.
-- `npm run build:all` — retains the legacy pipeline and is not the production assembler workflow yet.
+- `npm run build:all` — builds and verifies the complete local production package.
+
+`build:all` is the authoritative local production workflow and runs, in order:
+
+1. Viewer production build
+2. Server Admin production build
+3. Server Data and Thumbnail export staging
+4. Local production assembly
+5. Independent production verification
+
+The pipeline stops at the first failed stage. Its output is local only: no FTP,
+Hostinger access, or deployment occurs. It does not create or copy `.env`;
+deployment and secret provisioning remain separate sysadmin steps.
 
 ### Utility
 
@@ -102,9 +114,8 @@ Typical local development:
 1. Check repo paths with `npm run status`.
 2. Start everything with `npm run dev:all`.
 3. Work in the viewer or server repo directly.
-4. Build Viewer and Server, then stage exports with `npm run stage:exports`.
-5. Create the local package with `npm run assemble`.
-6. Inspect the assembled tree in the production output directory.
+4. Run the full local production pipeline with `npm run build:all`.
+5. Inspect the verified package in the configured production output directory.
 
 ## Future direction
 
