@@ -4,6 +4,7 @@ import path from 'node:path';
 import { validateDataManifest, validateThumbnailManifest } from './export-staging.js';
 
 const VIEWER_ROOT_ENTRIES = new Set([
+  '.htaccess',
   'assets',
   'index.html',
   'manifest.webmanifest',
@@ -12,6 +13,7 @@ const VIEWER_ROOT_ENTRIES = new Set([
 const ADMIN_ROOT_ENTRIES = new Set(['assets', 'index.html']);
 const PRODUCTION_ROOT_ENTRIES = new Set(['composer.json', 'composer.lock', 'public', 'temp', 'vendor']);
 const PUBLIC_ROOT_ENTRIES = new Set([
+  '.htaccess',
   'admin',
   'api',
   'assets',
@@ -33,6 +35,13 @@ const API_EXCLUDED_EXTENSIONS = new Set([
   '.bak', '.backup', '.crt', '.dump', '.key', '.old', '.orig', '.p12', '.pem', '.pfx', '.sql', '.swp', '.tmp',
 ]);
 const VENDOR_EXCLUDED_DIRECTORIES = new Set(['.git', 'node_modules', 'test', 'tests', 'tools']);
+export const VIEWER_SPA_HTACCESS = `RewriteEngine On
+RewriteBase /
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+`;
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -116,10 +125,19 @@ function validateManifestIcons(viewerDist) {
   }
 }
 
+export function validateViewerSpaHtaccess(filePath, label = 'Viewer .htaccess') {
+  requirePath(filePath, 'file', label);
+  const contents = fs.readFileSync(filePath, 'utf8').replaceAll('\r\n', '\n');
+  if (contents !== VIEWER_SPA_HTACCESS) {
+    throw new Error(`${label} does not match the Viewer SPA fallback contract`);
+  }
+}
+
 export function validateViewerDist(viewerDist) {
   requirePath(viewerDist, 'directory', 'Viewer dist');
   assertNoSymlinks(viewerDist, 'Viewer dist');
   assertExactEntries(viewerDist, VIEWER_ROOT_ENTRIES, 'Viewer dist');
+  validateViewerSpaHtaccess(path.join(viewerDist, '.htaccess'));
   requirePath(path.join(viewerDist, 'index.html'), 'file', 'Viewer index.html');
   requirePath(path.join(viewerDist, 'manifest.webmanifest'), 'file', 'Viewer manifest.webmanifest');
   requirePath(path.join(viewerDist, 'service-worker.js'), 'file', 'Viewer service-worker.js');
@@ -334,6 +352,7 @@ export function validateProductionOutput({ paths, dataManifest, thumbnailManifes
     'composer.json',
     'composer.lock',
     'vendor/autoload.php',
+    'public/.htaccess',
     'public/index.html',
     'public/manifest.webmanifest',
     'public/service-worker.js',
@@ -341,6 +360,8 @@ export function validateProductionOutput({ paths, dataManifest, thumbnailManifes
     'public/config.json',
     'public/playlists/index.json',
   ]) requirePath(path.join(outputRoot, relativePath), 'file', `Production ${relativePath}`);
+
+  validateViewerSpaHtaccess(path.join(publicRoot, '.htaccess'), 'Production public/.htaccess');
 
   for (const relativePath of ['public/assets', 'public/admin/assets', 'public/api', 'public/thumbs']) {
     requirePath(path.join(outputRoot, relativePath), 'directory', `Production ${relativePath}`);

@@ -6,6 +6,14 @@ import path from 'node:path';
 import test from 'node:test';
 import { verifyProduction } from '../scripts/lib/production-verification.js';
 
+const SPA_HTACCESS = `RewriteEngine On
+RewriteBase /
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+`;
+
 function writeFile(root, relativePath, contents = 'fixture') {
   const target = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -68,6 +76,7 @@ function createFixture(t) {
   fs.mkdirSync(path.join(outputRoot, 'temp/publication-undo'), { recursive: true });
   fs.mkdirSync(path.join(outputRoot, 'temp/thumbnail-undo'), { recursive: true });
 
+  writeFile(outputRoot, 'public/.htaccess', SPA_HTACCESS);
   writeFile(outputRoot, 'public/index.html', [
     '<link rel="manifest" href="/manifest.webmanifest">',
     '<link rel="stylesheet" href="/assets/viewer.css">',
@@ -140,7 +149,7 @@ test('valid package passes without modifying it', (t) => {
   const fixture = createFixture(t);
   const before = treeSnapshot(fixture.outputRoot);
   const result = verifyFixture(fixture);
-  assert.equal(result.application.packageFileCount, 20);
+  assert.equal(result.application.packageFileCount, 21);
   assert.equal(result.data.playlistCount, 1);
   assert.equal(result.data.showCount, 1);
   assert.equal(result.thumbnails.fileCount, 1);
@@ -157,6 +166,18 @@ test('unexpected application root entry fails', (t) => {
   const fixture = createFixture(t);
   writeFile(fixture.outputRoot, 'README.txt', 'unexpected');
   assert.throws(() => verifyFixture(fixture), /unexpected root entries/);
+});
+
+test('missing Viewer .htaccess fails verification', (t) => {
+  const fixture = createFixture(t);
+  fs.rmSync(path.join(fixture.outputRoot, 'public/.htaccess'));
+  assert.throws(() => verifyFixture(fixture), /missing required root entries: .htaccess/);
+});
+
+test('modified Viewer .htaccess fails verification', (t) => {
+  const fixture = createFixture(t);
+  writeFile(fixture.outputRoot, 'public/.htaccess', 'RewriteEngine Off\n');
+  assert.throws(() => verifyFixture(fixture), /Production public\/.htaccess does not match the Viewer SPA fallback contract/);
 });
 
 test('.env fails', (t) => {

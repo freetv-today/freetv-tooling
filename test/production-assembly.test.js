@@ -10,6 +10,14 @@ import {
   validateProductionOutput,
 } from '../scripts/lib/production-assembly.js';
 
+const SPA_HTACCESS = `RewriteEngine On
+RewriteBase /
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+`;
+
 function sha256(contents) {
   return crypto.createHash('sha256').update(contents).digest('hex');
 }
@@ -65,6 +73,7 @@ function createWorkspace(t) {
   const serverRoot = path.join(workspaceRoot, 'freetv-server');
   fs.mkdirSync(toolingRoot);
 
+  writeFile(viewerRoot, 'dist/.htaccess', SPA_HTACCESS);
   writeFile(viewerRoot, 'dist/index.html', '<!doctype html>');
   writeFile(viewerRoot, 'dist/assets/viewer.js', 'export {};');
   writeFile(viewerRoot, 'dist/assets/viewer.css', 'body {}');
@@ -121,6 +130,7 @@ test('valid production assembly succeeds', (t) => {
   const fixture = createWorkspace(t);
   const result = assembleProduction(fixture);
   assert.ok(result.validation.fileCount > 0);
+  assert.equal(fs.readFileSync(path.join(fixture.outputRoot, 'public/.htaccess'), 'utf8'), SPA_HTACCESS);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/index.html')), true);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/admin/index.html')), true);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/api/index.php')), true);
@@ -139,6 +149,18 @@ test('invalid Viewer dist fails', (t) => {
   const fixture = createWorkspace(t);
   writeFile(fixture.viewerRoot, 'dist/config.json', '{}');
   assert.throws(() => assembleProduction(fixture), /Viewer dist contains unexpected root entries/);
+});
+
+test('missing Viewer .htaccess fails', (t) => {
+  const fixture = createWorkspace(t);
+  fs.rmSync(path.join(fixture.viewerRoot, 'dist/.htaccess'));
+  assert.throws(() => assembleProduction(fixture), /Viewer dist is missing required root entries: .htaccess/);
+});
+
+test('invalid Viewer .htaccess fails', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.viewerRoot, 'dist/.htaccess', 'RewriteEngine Off\n');
+  assert.throws(() => assembleProduction(fixture), /Viewer .htaccess does not match the Viewer SPA fallback contract/);
 });
 
 test('missing Admin dist fails', (t) => {
@@ -165,6 +187,15 @@ test('destination ownership collisions fail even for identical bytes', () => {
   assert.throws(
     () => ownership.claim('/tmp/assembly-collision', 'Admin'),
     /Destination collision.*Viewer and Admin/,
+  );
+});
+
+test('no other owner may claim Viewer .htaccess', () => {
+  const ownership = new OwnershipRegistry();
+  ownership.claim('/tmp/production/public/.htaccess', 'Viewer');
+  assert.throws(
+    () => ownership.claim('/tmp/production/public/.htaccess', 'Data Export'),
+    /Destination collision.*Viewer and Data Export/,
   );
 });
 
@@ -242,7 +273,7 @@ test('only declared ownership roots appear in production', (t) => {
     'composer.json', 'composer.lock', 'public', 'temp', 'vendor',
   ]);
   assert.deepEqual(fs.readdirSync(path.join(fixture.outputRoot, 'public')).sort(), [
-    'admin', 'api', 'assets', 'config.json', 'index.html', 'manifest.webmanifest',
+    '.htaccess', 'admin', 'api', 'assets', 'config.json', 'index.html', 'manifest.webmanifest',
     'playlists', 'service-worker.js', 'thumbs',
   ]);
 });
