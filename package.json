@@ -23,6 +23,7 @@
     "verify": "node scripts/verify.js",
     "status": "node scripts/status.js",
     "test:assembly": "node --test test/production-assembly.test.js",
+    "test:verification": "node --test test/production-verification.test.js",
     "test": "node --test"
   },
   "dependencies": {

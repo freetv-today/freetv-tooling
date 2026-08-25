@@ -62,7 +62,7 @@ The exact paths are controlled by `config/paths.json`.
 - `npm run stage:exports` / `npm run build:data` — stages validated Server Data and Thumbnail exports.
 - `npm run assemble` — creates and validates the full local production package.
 - `npm run test:assembly` — runs focused production assembler contract tests.
-- `npm run verify` — runs the legacy global verifier; its replacement is deferred.
+- `npm run verify` — independently verifies an already-assembled local production package.
 - `npm run build:all` — retains the legacy pipeline and is not the production assembler workflow yet.
 
 ### Utility
