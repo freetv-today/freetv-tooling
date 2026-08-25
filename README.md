@@ -4,7 +4,6 @@
 
 - `freetv-viewer`
 - `freetv-server`
-- `freetv-data`
 
 The goal is to make local development, production assembly, and future deployment workflows reproducible from a single place.
 
@@ -15,7 +14,8 @@ This repo provides scripts to:
 - run the viewer and server in local development on separate ports,
 - start a lightweight PHP development server for server-side assets,
 - build each repo independently,
-- assemble a production-ready output tree,
+- stage Server-owned Viewer data and thumbnails,
+- assemble a validated local production package,
 - verify that the expected deployment paths exist,
 - and report whether the sibling repos are present.
 
@@ -27,7 +27,6 @@ Expected sibling structure:
 freetv-tooling/
 ../freetv-viewer/
 ../freetv-server/
-../freetv-data/
 ```
 
 The exact paths are controlled by `config/paths.json`.
@@ -38,9 +37,9 @@ The exact paths are controlled by `config/paths.json`.
 
 ### Important settings
 
-- `repos.viewer`, `repos.server`, `repos.data`: relative paths to the sibling repos.
+- `repos.viewer`, `repos.server`: relative paths to the sibling repos.
+- `staging.*`: Tooling-owned Server export staging paths.
 - `output.root`: root directory for assembled production files.
-- `output.*`: subdirectories created or populated during assembly.
 - `dev.viewerPort`: Vite dev server port for the viewer.
 - `dev.serverPort`: Vite dev server port for the admin/server app.
 - `dev.phpPort`: PHP dev server port for the server public directory.
@@ -60,10 +59,11 @@ The exact paths are controlled by `config/paths.json`.
 
 - `npm run build:view` — builds the viewer.
 - `npm run build:server` — builds the admin/server app.
-- `npm run build:data` — stages generated data files into the output tree.
-- `npm run assemble` — creates the final production directory layout.
-- `npm run verify` — checks that the assembled output contains required paths.
-- `npm run build:all` — runs the full build pipeline in order.
+- `npm run stage:exports` / `npm run build:data` — stages validated Server Data and Thumbnail exports.
+- `npm run assemble` — creates and validates the full local production package.
+- `npm run test:assembly` — runs focused production assembler contract tests.
+- `npm run verify` — runs the legacy global verifier; its replacement is deferred.
+- `npm run build:all` — retains the legacy pipeline and is not the production assembler workflow yet.
 
 ### Utility
 
@@ -71,16 +71,29 @@ The exact paths are controlled by `config/paths.json`.
 
 ## Production output
 
-The assembled output is written to `output.root`, with the following key structure:
+The assembled output is written to `output.root` as a full local deployment package:
 
-- `/` — viewer app
-- `/admin/` — admin/server app
-- `/api/` — PHP API assets
-- `/admin/tools/` — admin tools
-- `/playlists/` — exported playlist data
-- `/thumbs/` — generated thumbnails
-- `/logs/` — logs
-- `/config.json` — generated config file
+```text
+production/
+├── composer.json
+├── composer.lock
+├── vendor/
+├── temp/
+│   ├── publication-undo/
+│   └── thumbnail-undo/
+└── public/
+    ├── index.html
+    ├── assets/
+    ├── manifest.webmanifest
+    ├── service-worker.js
+    ├── admin/
+    ├── api/
+    ├── config.json
+    ├── playlists/
+    └── thumbs/
+```
+
+The package deliberately contains no `.env`; deployment operators provision it separately.
 
 ## Development workflow
 
@@ -89,8 +102,9 @@ Typical local development:
 1. Check repo paths with `npm run status`.
 2. Start everything with `npm run dev:all`.
 3. Work in the viewer or server repo directly.
-4. Build the final output with `npm run build:all`.
-5. Inspect the assembled tree in the production output directory.
+4. Build Viewer and Server, then stage exports with `npm run stage:exports`.
+5. Create the local package with `npm run assemble`.
+6. Inspect the assembled tree in the production output directory.
 
 ## Future direction
 

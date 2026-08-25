@@ -1,7 +1,7 @@
 {
 	"name": "freetv-tooling",
 	"version": "1.0.0-beta",
-	"description": "Tools to manage the build, testing, and deployment process of freetv-viewer, freetv-server, and freetv-data.",
+	"description": "Tools to manage FreeTV builds, validated exports, and local production assembly.",
 	"author": "Ken Dawson",
 	"license": "GPL-3.0-only",
 	"homepage": "https://freetv.today",
@@ -22,6 +22,7 @@
     "assemble": "node scripts/assemble.js",
     "verify": "node scripts/verify.js",
     "status": "node scripts/status.js",
+    "test:assembly": "node --test test/production-assembly.test.js",
     "test": "node --test"
   },
   "dependencies": {

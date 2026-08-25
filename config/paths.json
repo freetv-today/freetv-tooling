@@ -2,8 +2,7 @@
   "root": ".",
   "repos": {
     "viewer": "../freetv-viewer",
-    "server": "../freetv-server",
-    "data": "../freetv-data"
+    "server": "../freetv-server"
   },
   "staging": {
     "root": "staging",
@@ -11,15 +10,7 @@
     "thumbnails": "thumbnails"
   },
   "output": {
-    "root": "../production",
-    "assets": "../production/assets",
-    "adminAssets": "../production/admin/assets",
-    "api": "../production/api",
-    "adminTools": "../production/admin/tools",
-    "playlists": "../production/playlists",
-    "thumbs": "../production/thumbs",
-    "logs": "../production/logs",
-    "config": "../production/config.json"
+    "root": "../production"
   },
   "dev": {
     "viewerPort": 5173,
