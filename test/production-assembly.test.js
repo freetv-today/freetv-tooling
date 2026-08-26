@@ -18,6 +18,30 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.html [L]
 `;
 
+function pngFixture(width, height) {
+  const data = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(data);
+  data.writeUInt32BE(13, 8);
+  data.write('IHDR', 12, 'ascii');
+  data.writeUInt32BE(width, 16);
+  data.writeUInt32BE(height, 20);
+  return data;
+}
+
+function viewerManifest() {
+  return {
+    id: '/', name: 'FreeTV Viewer', short_name: 'FreeTV', lang: 'en-US', description: 'FreeTV fixture',
+    start_url: '/', scope: '/', display: 'standalone', display_override: ['standalone', 'minimal-ui'],
+    icons: [
+      { src: '/assets/app-icons/freetv-192x192.png', sizes: '192x192', type: 'image/png' },
+      { src: '/assets/app-icons/freetv-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      {
+        src: '/assets/app-icons/freetv-512x512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable',
+      },
+    ],
+  };
+}
+
 function sha256(contents) {
   return crypto.createHash('sha256').update(contents).digest('hex');
 }
@@ -77,10 +101,10 @@ function createWorkspace(t) {
   writeFile(viewerRoot, 'dist/index.html', '<!doctype html>');
   writeFile(viewerRoot, 'dist/assets/viewer.js', 'export {};');
   writeFile(viewerRoot, 'dist/assets/viewer.css', 'body {}');
-  writeFile(viewerRoot, 'dist/assets/icon.png', 'png fixture');
-  writeFile(viewerRoot, 'dist/manifest.webmanifest', JSON.stringify({
-    icons: [{ src: 'assets/icon.png' }],
-  }));
+  writeFile(viewerRoot, 'dist/assets/app-icons/freetv-192x192.png', pngFixture(192, 192));
+  writeFile(viewerRoot, 'dist/assets/app-icons/freetv-512x512.png', pngFixture(512, 512));
+  writeFile(viewerRoot, 'dist/assets/app-icons/freetv-512x512-maskable.png', pngFixture(512, 512));
+  writeFile(viewerRoot, 'dist/manifest.json', JSON.stringify(viewerManifest()));
   writeFile(viewerRoot, 'dist/service-worker.js', '/* service worker */');
 
   writeFile(serverRoot, 'dist/index.html', '<!doctype html>');
@@ -149,6 +173,12 @@ test('invalid Viewer dist fails', (t) => {
   const fixture = createWorkspace(t);
   writeFile(fixture.viewerRoot, 'dist/config.json', '{}');
   assert.throws(() => assembleProduction(fixture), /Viewer dist contains unexpected root entries/);
+});
+
+test('retired Viewer manifest.webmanifest fails', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.viewerRoot, 'dist/manifest.webmanifest', '{}');
+  assert.throws(() => assembleProduction(fixture), /Viewer dist contains unexpected root entries: manifest.webmanifest/);
 });
 
 test('missing Viewer .htaccess fails', (t) => {
@@ -257,10 +287,12 @@ test('assembled Thumbnails remain covered by staging hashes and sizes', (t) => {
   );
 });
 
-test('staging manifests and Admin runtime paths are absent from public output', (t) => {
+test('Viewer manifest owns public manifest.json and Admin runtime paths are absent', (t) => {
   const fixture = createWorkspace(t);
   assembleProduction(fixture);
-  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/manifest.json')), false);
+  const manifest = JSON.parse(fs.readFileSync(path.join(fixture.outputRoot, 'public/manifest.json'), 'utf8'));
+  assert.equal(manifest.id, '/');
+  assert.equal('contract_version' in manifest, false);
   for (const entry of ['api', 'config.json', 'playlists', 'thumbs']) {
     assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/admin', entry)), false);
   }
@@ -273,7 +305,7 @@ test('only declared ownership roots appear in production', (t) => {
     'composer.json', 'composer.lock', 'public', 'temp', 'vendor',
   ]);
   assert.deepEqual(fs.readdirSync(path.join(fixture.outputRoot, 'public')).sort(), [
-    '.htaccess', 'admin', 'api', 'assets', 'config.json', 'index.html', 'manifest.webmanifest',
+    '.htaccess', 'admin', 'api', 'assets', 'config.json', 'index.html', 'manifest.json',
     'playlists', 'service-worker.js', 'thumbs',
   ]);
 });

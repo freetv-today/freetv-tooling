@@ -226,15 +226,15 @@ function verifyReferenceSet(references, context) {
 }
 
 function verifyManifestReferences(publicRoot) {
-  const manifestPath = path.join(publicRoot, 'manifest.webmanifest');
-  const manifest = readJson(manifestPath, 'Production manifest.webmanifest');
+  const manifestPath = path.join(publicRoot, 'manifest.json');
+  const manifest = readJson(manifestPath, 'Production manifest.json');
   if (!Array.isArray(manifest.icons) || manifest.icons.length === 0) {
-    throw new Error('Production manifest.webmanifest must contain an icons array');
+    throw new Error('Production manifest.json must contain an icons array');
   }
   let checked = 0;
   for (const icon of manifest.icons) {
     if (!isObject(icon) || typeof icon.src !== 'string' || icon.src === '') {
-      throw new Error('Production manifest.webmanifest contains an icon without a source');
+      throw new Error('Production manifest.json contains an icon without a source');
     }
     checked += verifyStaticReference({
       reference: icon.src,
@@ -242,7 +242,7 @@ function verifyManifestReferences(publicRoot) {
       publicRoot,
       ownershipRoot: publicRoot,
       namespace: 'Viewer',
-      label: 'manifest.webmanifest',
+      label: 'manifest.json',
     });
   }
   return checked;

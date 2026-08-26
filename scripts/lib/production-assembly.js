@@ -7,7 +7,7 @@ const VIEWER_ROOT_ENTRIES = new Set([
   '.htaccess',
   'assets',
   'index.html',
-  'manifest.webmanifest',
+  'manifest.json',
   'service-worker.js',
 ]);
 const ADMIN_ROOT_ENTRIES = new Set(['assets', 'index.html']);
@@ -19,7 +19,7 @@ const PUBLIC_ROOT_ENTRIES = new Set([
   'assets',
   'config.json',
   'index.html',
-  'manifest.webmanifest',
+  'manifest.json',
   'playlists',
   'service-worker.js',
   'thumbs',
@@ -35,6 +35,14 @@ const API_EXCLUDED_EXTENSIONS = new Set([
   '.bak', '.backup', '.crt', '.dump', '.key', '.old', '.orig', '.p12', '.pem', '.pfx', '.sql', '.swp', '.tmp',
 ]);
 const VENDOR_EXCLUDED_DIRECTORIES = new Set(['.git', 'node_modules', 'test', 'tests', 'tools']);
+const VIEWER_MANIFEST_IDENTITY = Object.freeze({
+  id: '/', name: 'FreeTV Viewer', short_name: 'FreeTV', lang: 'en-US', start_url: '/', scope: '/', display: 'standalone',
+});
+const VIEWER_MANIFEST_ICONS = new Map([
+  ['/assets/app-icons/freetv-192x192.png', { width: 192, height: 192, purpose: undefined }],
+  ['/assets/app-icons/freetv-512x512.png', { width: 512, height: 512, purpose: 'any' }],
+  ['/assets/app-icons/freetv-512x512-maskable.png', { width: 512, height: 512, purpose: 'maskable' }],
+]);
 export const VIEWER_SPA_HTACCESS = `RewriteEngine On
 RewriteBase /
 
@@ -103,25 +111,56 @@ function validateFrontendAssets(root, label) {
   if (!hasJavaScript || !hasCss) throw new Error(`${label} must contain JavaScript and CSS bundles under assets/`);
 }
 
-function validateManifestIcons(viewerDist) {
+function readPngDimensions(filePath) {
+  const data = fs.readFileSync(filePath);
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (data.length < 24 || !data.subarray(0, 8).equals(signature)
+    || data.subarray(12, 16).toString('ascii') !== 'IHDR') return null;
+  return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
+}
+
+function validateViewerManifest(viewerDist) {
   let manifest;
   try {
-    manifest = JSON.parse(fs.readFileSync(path.join(viewerDist, 'manifest.webmanifest'), 'utf8'));
+    manifest = JSON.parse(fs.readFileSync(path.join(viewerDist, 'manifest.json'), 'utf8'));
   } catch (error) {
-    throw new Error(`Viewer manifest.webmanifest is invalid JSON: ${error.message}`);
+    throw new Error(`Viewer manifest.json is invalid JSON: ${error.message}`);
   }
-  if (!Array.isArray(manifest.icons) || manifest.icons.length === 0) {
-    throw new Error('Viewer manifest.webmanifest must declare at least one icon');
+  for (const [field, expected] of Object.entries(VIEWER_MANIFEST_IDENTITY)) {
+    if (manifest[field] !== expected) throw new Error(`Viewer manifest.json ${field} must be ${JSON.stringify(expected)}`);
   }
+  if (!Array.isArray(manifest.display_override) || manifest.display_override.length === 0) {
+    throw new Error('Viewer manifest.json must declare display_override');
+  }
+  if (!Array.isArray(manifest.icons) || manifest.icons.length !== VIEWER_MANIFEST_ICONS.size) {
+    throw new Error('Viewer manifest.json must declare the three FreeTV application icons');
+  }
+  const declaredIcons = new Set();
   for (const icon of manifest.icons) {
     if (!isObject(icon) || typeof icon.src !== 'string' || icon.src === '') {
-      throw new Error('Viewer manifest.webmanifest contains an icon without a source');
+      throw new Error('Viewer manifest.json contains an icon without a source');
+    }
+    const expected = VIEWER_MANIFEST_ICONS.get(icon.src);
+    if (!expected) throw new Error(`Viewer manifest.json contains an unexpected icon: ${icon.src}`);
+    declaredIcons.add(icon.src);
+    const validPurpose = expected.purpose === undefined
+      ? icon.purpose === undefined || icon.purpose === 'any'
+      : icon.purpose === expected.purpose;
+    if (icon.type !== 'image/png' || icon.sizes !== `${expected.width}x${expected.height}` || !validPurpose) {
+      throw new Error(`Viewer manifest.json icon contract is invalid: ${icon.src}`);
     }
     const relativeIcon = icon.src.split(/[?#]/u)[0].replace(/^\/+/, '');
     const iconPath = path.resolve(viewerDist, relativeIcon);
     if (!isWithin(iconPath, viewerDist) || !fs.existsSync(iconPath) || !fs.statSync(iconPath).isFile()) {
       throw new Error(`Viewer manifest icon does not resolve inside dist: ${icon.src}`);
     }
+    const dimensions = readPngDimensions(iconPath);
+    if (!dimensions || dimensions.width !== expected.width || dimensions.height !== expected.height) {
+      throw new Error(`Viewer manifest icon PNG dimensions are invalid: ${icon.src}`);
+    }
+  }
+  for (const iconPath of VIEWER_MANIFEST_ICONS.keys()) {
+    if (!declaredIcons.has(iconPath)) throw new Error(`Viewer manifest.json is missing required icon: ${iconPath}`);
   }
 }
 
@@ -139,10 +178,10 @@ export function validateViewerDist(viewerDist) {
   assertExactEntries(viewerDist, VIEWER_ROOT_ENTRIES, 'Viewer dist');
   validateViewerSpaHtaccess(path.join(viewerDist, '.htaccess'));
   requirePath(path.join(viewerDist, 'index.html'), 'file', 'Viewer index.html');
-  requirePath(path.join(viewerDist, 'manifest.webmanifest'), 'file', 'Viewer manifest.webmanifest');
+  requirePath(path.join(viewerDist, 'manifest.json'), 'file', 'Viewer manifest.json');
   requirePath(path.join(viewerDist, 'service-worker.js'), 'file', 'Viewer service-worker.js');
   validateFrontendAssets(viewerDist, 'Viewer dist');
-  validateManifestIcons(viewerDist);
+  validateViewerManifest(viewerDist);
 }
 
 export function validateAdminDist(adminDist) {
@@ -354,7 +393,7 @@ export function validateProductionOutput({ paths, dataManifest, thumbnailManifes
     'vendor/autoload.php',
     'public/.htaccess',
     'public/index.html',
-    'public/manifest.webmanifest',
+    'public/manifest.json',
     'public/service-worker.js',
     'public/admin/index.html',
     'public/config.json',
@@ -370,7 +409,7 @@ export function validateProductionOutput({ paths, dataManifest, thumbnailManifes
   assertEmptyDirectory(path.join(outputRoot, 'temp/publication-undo'), 'Publication Undo runtime directory');
   assertEmptyDirectory(path.join(outputRoot, 'temp/thumbnail-undo'), 'Thumbnail Undo runtime directory');
   validateFrontendAssets(publicRoot, 'Production Viewer');
-  validateManifestIcons(publicRoot);
+  validateViewerManifest(publicRoot);
   validateFrontendAssets(path.join(publicRoot, 'admin'), 'Production Admin');
 
   for (const item of walk(path.join(publicRoot, 'api'))) {

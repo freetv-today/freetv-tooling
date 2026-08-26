@@ -96,7 +96,7 @@ production/
 └── public/
     ├── index.html
     ├── assets/
-    ├── manifest.webmanifest
+    ├── manifest.json
     ├── service-worker.js
     ├── admin/
     ├── api/

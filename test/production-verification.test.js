@@ -14,6 +14,30 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.html [L]
 `;
 
+function pngFixture(width, height) {
+  const data = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(data);
+  data.writeUInt32BE(13, 8);
+  data.write('IHDR', 12, 'ascii');
+  data.writeUInt32BE(width, 16);
+  data.writeUInt32BE(height, 20);
+  return data;
+}
+
+function viewerManifest() {
+  return {
+    id: '/', name: 'FreeTV Viewer', short_name: 'FreeTV', lang: 'en-US', description: 'FreeTV fixture',
+    start_url: '/', scope: '/', display: 'standalone', display_override: ['standalone', 'minimal-ui'],
+    icons: [
+      { src: '/assets/app-icons/freetv-192x192.png', sizes: '192x192', type: 'image/png' },
+      { src: '/assets/app-icons/freetv-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      {
+        src: '/assets/app-icons/freetv-512x512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable',
+      },
+    ],
+  };
+}
+
 function writeFile(root, relativePath, contents = 'fixture') {
   const target = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -78,7 +102,7 @@ function createFixture(t) {
 
   writeFile(outputRoot, 'public/.htaccess', SPA_HTACCESS);
   writeFile(outputRoot, 'public/index.html', [
-    '<link rel="manifest" href="/manifest.webmanifest">',
+    '<link rel="manifest" href="/manifest.json">',
     '<link rel="stylesheet" href="/assets/viewer.css">',
     '<script src="/assets/viewer.js"></script>',
     '<img src="/assets/icon.png">',
@@ -86,14 +110,16 @@ function createFixture(t) {
   writeFile(outputRoot, 'public/assets/viewer.js', 'const icon = "/assets/icon.png";\n');
   writeFile(outputRoot, 'public/assets/viewer.css', 'body { background: url(/assets/icon.png); }\n');
   writeFile(outputRoot, 'public/assets/icon.png', 'png fixture');
-  writeFile(outputRoot, 'public/manifest.webmanifest', JSON.stringify({
-    icons: [{ src: 'assets/icon.png' }],
-  }));
+  writeFile(outputRoot, 'public/assets/app-icons/freetv-192x192.png', pngFixture(192, 192));
+  writeFile(outputRoot, 'public/assets/app-icons/freetv-512x512.png', pngFixture(512, 512));
+  writeFile(outputRoot, 'public/assets/app-icons/freetv-512x512-maskable.png', pngFixture(512, 512));
+  writeFile(outputRoot, 'public/manifest.json', JSON.stringify(viewerManifest()));
   writeFile(outputRoot, 'public/service-worker.js', [
     'const STATIC_ASSETS = [',
     "  '/',",
     "  '/index.html',",
-    "  '/assets/icon.png',",
+    "  '/manifest.json',",
+    "  '/assets/app-icons/freetv-192x192.png',",
     '];',
   ].join('\n'));
 
@@ -149,7 +175,7 @@ test('valid package passes without modifying it', (t) => {
   const fixture = createFixture(t);
   const before = treeSnapshot(fixture.outputRoot);
   const result = verifyFixture(fixture);
-  assert.equal(result.application.packageFileCount, 21);
+  assert.equal(result.application.packageFileCount, 24);
   assert.equal(result.data.playlistCount, 1);
   assert.equal(result.data.showCount, 1);
   assert.equal(result.thumbnails.fileCount, 1);
@@ -212,10 +238,16 @@ test('Admin root assets reference fails ownership', (t) => {
 
 test('missing manifest icon fails', (t) => {
   const fixture = createFixture(t);
-  writeFile(fixture.outputRoot, 'public/manifest.webmanifest', JSON.stringify({
-    icons: [{ src: 'assets/missing.png' }],
-  }));
-  assert.throws(() => verifyFixture(fixture), /manifest icon does not resolve|static reference.*missing/);
+  const manifest = viewerManifest();
+  manifest.icons[0].src = '/assets/app-icons/missing.png';
+  writeFile(fixture.outputRoot, 'public/manifest.json', JSON.stringify(manifest));
+  assert.throws(() => verifyFixture(fixture), /unexpected icon|manifest icon does not resolve|static reference.*missing/);
+});
+
+test('retired public manifest.webmanifest fails', (t) => {
+  const fixture = createFixture(t);
+  writeFile(fixture.outputRoot, 'public/manifest.webmanifest', '{}');
+  assert.throws(() => verifyFixture(fixture), /unexpected root entries: manifest.webmanifest/);
 });
 
 test('Data hash mismatch fails', (t) => {
