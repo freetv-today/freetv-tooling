@@ -4,6 +4,7 @@
 
 - `freetv-viewer`
 - `freetv-server`
+- `freetv-data`
 
 The goal is to make local development, production assembly, and future deployment workflows reproducible from a single place.
 
@@ -17,7 +18,8 @@ This repo provides scripts to:
 - stage Server-owned Viewer data and thumbnails,
 - assemble a validated local production package,
 - verify that the expected deployment paths exist,
-- and report whether the sibling repos are present.
+- report whether the sibling repos are present,
+- compare a downloaded Production Content Snapshot with the local canonical data.
 
 ## Repository layout
 
@@ -25,6 +27,7 @@ Expected sibling structure:
 
 ```text
 freetv-tooling/
+../freetv-data/
 ../freetv-viewer/
 ../freetv-server/
 ```
@@ -37,7 +40,7 @@ The exact paths are controlled by `config/paths.json`.
 
 ### Important settings
 
-- `repos.viewer`, `repos.server`: relative paths to the sibling repos.
+- `repos.data`, `repos.viewer`, `repos.server`: relative paths to the sibling repos.
 - `staging.*`: Tooling-owned Server export staging paths.
 - `output.root`: root directory for assembled production files.
 - `dev.viewerPort`: FreeTV Viewer Vite port (default `5173`).
@@ -80,6 +83,7 @@ deployment and secret provisioning remain separate sysadmin steps.
 ### Utility
 
 - `npm run status` — confirms that the expected sibling repos exist and shows the output path.
+- `npm run content:compare -- <snapshot-directory-or-zip>` — prints a read-only production-to-canonical reconciliation report.
 
 ## Production output
 
