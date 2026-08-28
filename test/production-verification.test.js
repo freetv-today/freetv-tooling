@@ -9,6 +9,13 @@ import { verifyProduction } from '../scripts/lib/production-verification.js';
 const SPA_HTACCESS = `RewriteEngine On
 RewriteBase /
 
+# Admin Dashboard SPA routes
+RewriteCond %{REQUEST_URI} ^/admin(?:/|$)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^admin(?:/.*)?$ /admin/index.html [L]
+
+# Viewer SPA routes
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.html [L]
