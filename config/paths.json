@@ -15,7 +15,7 @@
   "dev": {
     "viewerPort": 5173,
     "serverPort": 5174,
-    "phpPort": 8000,
+    "phpPort": 8081,
     "viewerBase": "/",
     "adminBase": "/admin/"
   }

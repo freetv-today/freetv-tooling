@@ -11,8 +11,8 @@ The goal is to make local development, production assembly, and future deploymen
 
 This repo provides scripts to:
 
-- run the viewer and server in local development on separate ports,
-- start a lightweight PHP development server for server-side assets,
+- run FreeTV Viewer and FreeTV Admin Dashboard in local development on separate ports,
+- start a lightweight PHP API Server for Admin API requests,
 - build each repo independently,
 - stage Server-owned Viewer data and thumbnails,
 - assemble a validated local production package,
@@ -40,9 +40,9 @@ The exact paths are controlled by `config/paths.json`.
 - `repos.viewer`, `repos.server`: relative paths to the sibling repos.
 - `staging.*`: Tooling-owned Server export staging paths.
 - `output.root`: root directory for assembled production files.
-- `dev.viewerPort`: Vite dev server port for the viewer.
-- `dev.serverPort`: Vite dev server port for the admin/server app.
-- `dev.phpPort`: PHP dev server port for the server public directory.
+- `dev.viewerPort`: FreeTV Viewer Vite port (default `5173`).
+- `dev.serverPort`: FreeTV Admin Dashboard Vite port (default `5174`).
+- `dev.phpPort`: PHP API Server port (default `8081`).
 - `dev.viewerBase`: base path for the viewer app.
 - `dev.adminBase`: base path for the admin app.
 
@@ -50,15 +50,15 @@ The exact paths are controlled by `config/paths.json`.
 
 ### Development
 
-- `npm run dev:view` — starts the viewer dev server.
-- `npm run dev:server` — starts the admin/server dev server.
-- `npm run dev:php-server` — starts the PHP dev server from the server `public/` directory.
+- `npm run dev:viewer` — starts FreeTV Viewer.
+- `npm run dev:admin` — starts FreeTV Admin Dashboard.
+- `npm run dev:php` — starts the PHP API Server from the `freetv-server/public/` directory.
 - `npm run dev:all` — starts all three development processes.
 
 ### Build
 
-- `npm run build:view` — builds the viewer.
-- `npm run build:server` — builds the admin/server app.
+- `npm run build:viewer` — builds FreeTV Viewer.
+- `npm run build:admin` — builds FreeTV Admin Dashboard.
 - `npm run stage:exports` / `npm run build:data` — stages validated Server Data and Thumbnail exports.
 - `npm run assemble` — creates and validates the full local production package.
 - `npm run test:assembly` — runs focused production assembler contract tests.
@@ -67,8 +67,8 @@ The exact paths are controlled by `config/paths.json`.
 
 `build:all` is the authoritative local production workflow and runs, in order:
 
-1. Viewer production build
-2. Server Admin production build
+1. FreeTV Viewer production build
+2. FreeTV Admin Dashboard production build
 3. Server Data and Thumbnail export staging
 4. Local production assembly
 5. Independent production verification
@@ -113,9 +113,38 @@ Typical local development:
 
 1. Check repo paths with `npm run status`.
 2. Start everything with `npm run dev:all`.
-3. Work in the viewer or server repo directly.
+3. Work in the Viewer or Admin repository directly.
 4. Run the full local production pipeline with `npm run build:all`.
 5. Inspect the verified package in the configured production output directory.
+
+## Troubleshooting
+
+The Tooling-managed development ports are `5173` for FreeTV Viewer, `5174` for
+FreeTV Admin Dashboard, and `8081` for the PHP API Server. Startup stops with a
+clear error instead of selecting another port when one is occupied.
+The availability check is a startup diagnostic rather than a port lock; Vite's
+strict-port mode remains the final guard if another process claims a port during startup.
+
+On Linux or macOS, identify the process using a port with:
+
+```bash
+lsof -i :5174
+```
+
+Terminate a stale FreeTV development process with `kill <PID>`. Use `kill -9 <PID>`
+only if a normal termination fails.
+
+On Windows, use:
+
+```text
+netstat -ano | findstr :5174
+taskkill /PID <PID>
+```
+
+Use `taskkill /PID <PID> /F` only if the normal command fails. Substitute `5173`
+or `8081` when checking the Viewer or PHP API port. If the port belongs to a
+legitimate unrelated service, do not terminate it; change the corresponding
+development port in `config/paths.json` instead.
 
 ## Future direction
 

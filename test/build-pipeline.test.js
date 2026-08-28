@@ -12,7 +12,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'package.j
 test('build:all runs the accepted stages in exact order', () => {
   assert.equal(
     packageJson.scripts['build:all'],
-    'npm run build:view && npm run build:server && npm run stage:exports && npm run assemble && npm run verify',
+    'npm run build:viewer && npm run build:admin && npm run stage:exports && npm run assemble && npm run verify',
   );
 });
 
@@ -20,8 +20,8 @@ test('build:all is fail-fast and has no deployment stage', () => {
   const command = packageJson.scripts['build:all'];
   const stages = command.split(' && ');
   assert.deepEqual(stages, [
-    'npm run build:view',
-    'npm run build:server',
+    'npm run build:viewer',
+    'npm run build:admin',
     'npm run stage:exports',
     'npm run assemble',
     'npm run verify',
@@ -48,7 +48,7 @@ test('a failing early stage prevents later stages from running', () => {
       encoding: 'utf8',
       env: {
         ...process.env,
-        BUILD_PIPELINE_FAIL: 'build:server',
+        BUILD_PIPELINE_FAIL: 'build:admin',
         BUILD_PIPELINE_LOG: logPath,
         PATH: `${fakeBin}:${process.env.PATH}`,
       },
@@ -57,8 +57,8 @@ test('a failing early stage prevents later stages from running', () => {
 
     assert.notEqual(result.status, 0);
     assert.deepEqual(fs.readFileSync(logPath, 'utf8').trim().split('\n'), [
-      'build:view',
-      'build:server',
+      'build:viewer',
+      'build:admin',
     ]);
   } finally {
     fs.rmSync(fixtureRoot, { force: true, recursive: true });
