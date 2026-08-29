@@ -85,6 +85,9 @@ deployment and secret provisioning remain separate sysadmin steps.
 - `npm run status` — confirms that the expected sibling repos exist and shows the output path.
 - `npm run content:compare -- <snapshot-directory-or-zip>` — prints a read-only production-to-canonical reconciliation report.
 
+Playlist comparison intentionally excludes legacy `lastupdated` values because they represent
+publication/provenance state rather than canonical dataset content.
+
 ## Production output
 
 The assembled output is written to `output.root` as a full local deployment package:

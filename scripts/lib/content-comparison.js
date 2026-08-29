@@ -16,8 +16,10 @@ const SNAPSHOT_ROOT_FILES = [
 const SNAPSHOT_ARTIFACT_PATHS = ['playlists.json', 'playlist_shows.json', 'thumbs-manifest.json'];
 // Filename and filename + Internet Archive identifier are the logical keys. Production-only
 // database id/playlist_id and created_at/updated_at fields are intentionally not compared.
+// Legacy lastupdated is publication/provenance metadata and is intentionally excluded from
+// canonical content equality.
 const PLAYLIST_FIELDS = [
-  'dbtitle', 'dbversion', 'author', 'email', 'link', 'lastupdated', 'is_default', 'sort_order',
+  'dbtitle', 'dbversion', 'author', 'email', 'link', 'is_default', 'sort_order',
 ];
 const SHOW_FIELDS = [
   'category', 'status', 'title', 'description', 'start_year', 'end_year', 'imdb', 'group_name', 'sort_order',

@@ -222,6 +222,16 @@ test('identical logical content ignores differing database numeric IDs and does 
   assert.equal(hash(fs.readFileSync(path.join(fixture.dataRoot, 'playlists/alpha.json'))), beforeLocal);
 });
 
+test('playlist equality ignores legacy lastupdated differences', (t) => {
+  const changed = localPlaylistFromProduction(basePlaylists()[0], baseShows());
+  changed.lastupdated = '2020-01-02T03:04:05Z';
+  const comparison = comparisonFixture(t, {}, {
+    playlists: [{ filename: 'alpha.json', data: changed }],
+  }).compare();
+
+  assert.equal(comparison.playlists.changed.length, 0);
+});
+
 test('reports a production-only playlist', (t) => {
   const playlists = [...basePlaylists(), {
     ...basePlaylists()[0], id: 202, filename: 'beta.json', dbtitle: 'Beta', is_default: 0, sort_order: 1,
