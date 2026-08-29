@@ -10,6 +10,7 @@ import {
   loadLocalDataset,
   loadProductionSnapshot,
   resolveLocalDataPath,
+  summarizeChangedFields,
 } from '../scripts/lib/content-comparison.js';
 
 const SNAPSHOT_NAME = 'freetv-content-snapshot-20260828T192021Z';
@@ -315,6 +316,62 @@ test('reports production-only, local-only, and changed thumbnails by SHA-256', (
   assert.deepEqual(comparison.thumbnails.localOnly, [{ filename: 'tt0000003.jpg' }]);
   assert.equal(comparison.thumbnails.changed[0].filename, 'tt0000001.jpg');
   assert.equal(comparison.thumbnails.changed[0].differences[0].field, 'sha256');
+});
+
+test('summarizes changed fields by record with deterministic ordering', () => {
+  const difference = (field) => ({ field, production: 'production', local: 'local' });
+  const comparison = {
+    playlists: {
+      productionOnly: [{ differences: [difference('ignored_production_only')] }],
+      localOnly: [{ differences: [difference('ignored_local_only')] }],
+      changed: [],
+    },
+    shows: {
+      productionOnly: [],
+      localOnly: [],
+      changed: [
+        { differences: [difference('description'), difference('imdb')] },
+        { differences: [difference('sort_order')] },
+        { differences: [difference('sort_order'), difference('description')] },
+        { differences: [difference('sort_order'), difference('imdb')] },
+      ],
+    },
+    thumbnails: {
+      productionOnly: [],
+      localOnly: [],
+      changed: [{ differences: [difference('sha256')] }],
+    },
+  };
+
+  assert.deepEqual(summarizeChangedFields(comparison), {
+    playlists: { changedFields: [], singleFieldRecords: [] },
+    shows: {
+      changedFields: [
+        { field: 'sort_order', count: 3 },
+        { field: 'description', count: 2 },
+        { field: 'imdb', count: 2 },
+      ],
+      singleFieldRecords: [{ field: 'sort_order', count: 1 }],
+    },
+    thumbnails: {
+      changedFields: [{ field: 'sha256', count: 1 }],
+      singleFieldRecords: [{ field: 'sha256', count: 1 }],
+    },
+  });
+});
+
+test('report prints aggregate changed fields, single-field counts, and none for empty types', (t) => {
+  const comparison = comparisonFixture(t, {
+    thumbnails: { 'tt0000001.jpg': 'production bytes', 'tt0000002.jpg': 'thumbnail two' },
+  }, {
+    thumbnails: { 'tt0000001.jpg': 'local bytes', 'tt0000002.jpg': 'thumbnail two' },
+  }).compare();
+  const report = formatComparisonReport(comparison);
+
+  assert.match(report, /Changed Field Summary\n\n  Playlists\n    none\n\n  Shows\n    none/u);
+  assert.match(report, /  Thumbnails\n    sha256: 1/u);
+  assert.match(report, /Changed Records Differing Only by One Field[\s\S]*  Thumbnails\n    sha256: 1/u);
+  assert.match(report, /THUMBNAIL CHANGED[\s\S]*    sha256:/u);
 });
 
 test('rejects malformed snapshot JSON', (t) => {

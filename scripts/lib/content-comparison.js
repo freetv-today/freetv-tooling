@@ -540,8 +540,41 @@ export function compareContent(production, local) {
   return { production, local, playlists, shows, thumbnails };
 }
 
+function sortedFieldCounts(counts) {
+  return [...counts].map(([field, count]) => ({ field, count }))
+    .sort((left, right) => right.count - left.count || compareText(left.field, right.field));
+}
+
+export function summarizeChangedFields(comparison) {
+  return Object.fromEntries(['playlists', 'shows', 'thumbnails'].map((kind) => {
+    const changedFields = new Map();
+    const singleFieldRecords = new Map();
+    for (const record of comparison[kind].changed) {
+      const fields = new Set(record.differences.map((difference) => difference.field));
+      for (const field of fields) changedFields.set(field, (changedFields.get(field) ?? 0) + 1);
+      if (fields.size === 1) {
+        const [field] = fields;
+        singleFieldRecords.set(field, (singleFieldRecords.get(field) ?? 0) + 1);
+      }
+    }
+    return [kind, {
+      changedFields: sortedFieldCounts(changedFields),
+      singleFieldRecords: sortedFieldCounts(singleFieldRecords),
+    }];
+  }));
+}
+
 function valueForReport(value) {
   return JSON.stringify(value);
+}
+
+function fieldSummaryLines(label, counts) {
+  return [
+    `  ${label}`,
+    ...(counts.length === 0
+      ? ['    none']
+      : counts.map(({ field, count }) => `    ${field}: ${count}`)),
+  ];
 }
 
 function detailLines(title, items, identity) {
@@ -561,6 +594,7 @@ function detailLines(title, items, identity) {
 
 export function formatComparisonReport(comparison) {
   const { production, local, playlists, shows, thumbnails } = comparison;
+  const changedFieldSummary = summarizeChangedFields(comparison);
   const lines = [
     'FreeTV Content Comparison',
     '',
@@ -592,6 +626,22 @@ export function formatComparisonReport(comparison) {
     `    Production only: ${thumbnails.productionOnly.length}`,
     `    Local only:      ${thumbnails.localOnly.length}`,
     `    Changed:         ${thumbnails.changed.length}`,
+    '',
+    'Changed Field Summary',
+    '',
+    ...fieldSummaryLines('Playlists', changedFieldSummary.playlists.changedFields),
+    '',
+    ...fieldSummaryLines('Shows', changedFieldSummary.shows.changedFields),
+    '',
+    ...fieldSummaryLines('Thumbnails', changedFieldSummary.thumbnails.changedFields),
+    '',
+    'Changed Records Differing Only by One Field',
+    '',
+    ...fieldSummaryLines('Playlists', changedFieldSummary.playlists.singleFieldRecords),
+    '',
+    ...fieldSummaryLines('Shows', changedFieldSummary.shows.singleFieldRecords),
+    '',
+    ...fieldSummaryLines('Thumbnails', changedFieldSummary.thumbnails.singleFieldRecords),
     '',
     'Details',
     '',

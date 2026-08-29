@@ -83,7 +83,7 @@ deployment and secret provisioning remain separate sysadmin steps.
 ### Utility
 
 - `npm run status` — confirms that the expected sibling repos exist and shows the output path.
-- `npm run content:compare -- <snapshot-directory-or-zip>` — prints a read-only production-to-canonical reconciliation report.
+- `npm run content:compare -- <snapshot-directory-or-zip>` — prints a read-only production-to-canonical reconciliation report with aggregate changed-field diagnostics.
 
 Playlist comparison intentionally excludes legacy `lastupdated` values because they represent
 publication/provenance state rather than canonical dataset content.
