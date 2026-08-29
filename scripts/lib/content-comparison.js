@@ -21,8 +21,10 @@ const SNAPSHOT_ARTIFACT_PATHS = ['playlists.json', 'playlist_shows.json', 'thumb
 const PLAYLIST_FIELDS = [
   'dbtitle', 'dbversion', 'author', 'email', 'link', 'is_default', 'sort_order',
 ];
+// Playlist sort_order remains canonical. playlist_shows.sort_order is legacy storage/bootstrap
+// state rather than canonical show content and is intentionally excluded from equality.
 const SHOW_FIELDS = [
-  'category', 'status', 'title', 'description', 'start_year', 'end_year', 'imdb', 'group_name', 'sort_order',
+  'category', 'status', 'title', 'description', 'start_year', 'end_year', 'imdb', 'group_name',
 ];
 
 function isObject(value) {

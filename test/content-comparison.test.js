@@ -265,6 +265,25 @@ test('reports changed playlist metadata', (t) => {
   ]);
 });
 
+test('playlist ordering remains canonical', (t) => {
+  const alpha = basePlaylists()[0];
+  const beta = {
+    ...alpha, id: 202, filename: 'beta.json', dbtitle: 'Beta', is_default: 0, sort_order: 1,
+  };
+  const comparison = comparisonFixture(t, { playlists: [alpha, beta] }, {
+    playlists: [
+      { filename: 'beta.json', data: localPlaylistFromProduction(beta, []) },
+      { filename: 'alpha.json', data: localPlaylistFromProduction(alpha, baseShows()) },
+    ],
+    defaultFilename: 'alpha.json',
+  }).compare();
+
+  assert.deepEqual(comparison.playlists.changed.map((item) => item.differences), [
+    [{ field: 'sort_order', production: 0, local: 1 }],
+    [{ field: 'sort_order', production: 1, local: 0 }],
+  ]);
+});
+
 test('reports a production-only show', (t) => {
   const shows = [...baseShows(), {
     ...baseShows()[0], id: 503, identifier: 'alpha-three', title: 'Alpha Three', sort_order: 2,
@@ -293,17 +312,13 @@ test('reports changed show content', (t) => {
   ]);
 });
 
-test('reports reordered shows as meaningful ordering changes', (t) => {
+test('ignores reordered shows as legacy storage ordering', (t) => {
   const data = localPlaylistFromProduction(basePlaylists()[0], baseShows());
   data.shows.reverse();
   const comparison = comparisonFixture(t, {}, {
     playlists: [{ filename: 'alpha.json', data }],
   }).compare();
-  assert.equal(comparison.shows.changed.length, 2);
-  assert.deepEqual(comparison.shows.changed.map((item) => item.differences), [
-    [{ field: 'sort_order', production: 0, local: 1 }],
-    [{ field: 'sort_order', production: 1, local: 0 }],
-  ]);
+  assert.equal(comparison.shows.changed.length, 0);
 });
 
 test('reports production-only, local-only, and changed thumbnails by SHA-256', (t) => {

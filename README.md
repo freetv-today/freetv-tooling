@@ -87,6 +87,8 @@ deployment and secret provisioning remain separate sysadmin steps.
 
 Playlist comparison intentionally excludes legacy `lastupdated` values because they represent
 publication/provenance state rather than canonical dataset content.
+Playlist `sort_order` remains canonical, while legacy `playlist_shows.sort_order` is excluded
+from canonical show equality.
 
 ## Production output
 
