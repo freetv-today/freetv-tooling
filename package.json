@@ -10,6 +10,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev:install-viewer-data": "node scripts/dev-install-viewer-data.js",
+    "dev:clean-viewer-data": "node scripts/dev-clean-viewer-data.js",
     "dev:viewer": "node scripts/dev-viewer.js",
     "dev:admin": "node scripts/dev-admin.js",
     "dev:php": "node scripts/dev-php.js",

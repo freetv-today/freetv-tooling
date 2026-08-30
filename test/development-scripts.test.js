@@ -18,6 +18,8 @@ function read(relativePath) {
 }
 
 test('public development and build commands use explicit product names', () => {
+  assert.equal(packageJson.scripts['dev:install-viewer-data'], 'node scripts/dev-install-viewer-data.js');
+  assert.equal(packageJson.scripts['dev:clean-viewer-data'], 'node scripts/dev-clean-viewer-data.js');
   assert.equal(packageJson.scripts['dev:viewer'], 'node scripts/dev-viewer.js');
   assert.equal(packageJson.scripts['dev:admin'], 'node scripts/dev-admin.js');
   assert.equal(packageJson.scripts['dev:php'], 'node scripts/dev-php.js');

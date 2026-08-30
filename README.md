@@ -53,6 +53,8 @@ The exact paths are controlled by `config/paths.json`.
 
 ### Development
 
+- `npm run dev:install-viewer-data` — resets the Viewer's disposable public data to the configured `freetv-data` snapshot.
+- `npm run dev:clean-viewer-data` — removes the disposable Viewer public data without touching other public assets.
 - `npm run dev:viewer` — starts FreeTV Viewer.
 - `npm run dev:admin` — starts FreeTV Admin Dashboard.
 - `npm run dev:php` — starts the PHP API Server from the `freetv-server/public/` directory.
@@ -118,7 +120,30 @@ The package deliberately contains no `.env`; deployment operators provision it s
 
 ## Development workflow
 
-Typical local development:
+For Viewer development, install a fresh development-data snapshot before starting Vite:
+
+```bash
+npm run dev:install-viewer-data
+npm run dev:viewer
+```
+
+The installed `public/config.json`, `public/playlists/`, and `public/thumbs/` files
+inside `freetv-viewer` are disposable local development state. Rerunning
+`dev:install-viewer-data` completely resets those three paths to the current
+configured `freetv-data` snapshot, including removal of stale files. Do not edit
+`freetv-data` through these Viewer copies, and do not commit the copies from the
+Viewer repository.
+
+When the local copies are no longer needed, they can be removed explicitly:
+
+```bash
+npm run dev:clean-viewer-data
+```
+
+`freetv-data` is the published dataset used for development and distribution.
+Authoritative working content is maintained by the FreeTV Admin/server system.
+
+The broader typical local workflow is:
 
 1. Check repo paths with `npm run status`.
 2. Start everything with `npm run dev:all`.
