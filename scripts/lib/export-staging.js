@@ -203,7 +203,7 @@ export function runCommand({ executable, args, cwd, label }) {
   });
 }
 
-export async function stageServerExports({ toolingRoot, config, commandRunner = runCommand }) {
+export async function stageServerExports({ toolingRoot, config, commandRunner = runCommand, logger = console }) {
   const serverRoot = path.resolve(toolingRoot, config.repos?.server ?? '');
   const paths = resolveStagingPaths(toolingRoot, config);
 
@@ -229,11 +229,11 @@ export async function stageServerExports({ toolingRoot, config, commandRunner = 
     });
     const thumbnailManifest = validateThumbnailManifest(paths.thumbnailRoot);
 
-    console.log('Server export staging complete:');
-    console.log(`  Data: ${dataManifest.dataset.playlist_count} playlists, ${dataManifest.dataset.show_count} shows`);
-    console.log(`  Thumbnails: ${thumbnailManifest.dataset.thumbnail_count} files, ${thumbnailManifest.dataset.total_bytes} bytes`);
+    logger.log('Server export staging complete:');
+    logger.log(`  Data: ${dataManifest.dataset.playlist_count} playlists, ${dataManifest.dataset.show_count} shows`);
+    logger.log(`  Thumbnails: ${thumbnailManifest.dataset.thumbnail_count} files, ${thumbnailManifest.dataset.total_bytes} bytes`);
     if (dataManifest.server_revision !== thumbnailManifest.server_revision) {
-      console.warn('  Warning: Data and Thumbnail server revisions differ.');
+      logger.warn('  Warning: Data and Thumbnail server revisions differ.');
     }
     return { dataManifest, thumbnailManifest, paths };
   } catch (error) {

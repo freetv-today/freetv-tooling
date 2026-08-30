@@ -9,6 +9,12 @@ import { fileURLToPath } from 'node:url';
 const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'package.json'), 'utf8'));
 
+test('data validation is an explicit standalone command', () => {
+  assert.equal(packageJson.scripts['data:validate'], 'node scripts/data-validate.js');
+  assert.doesNotMatch(packageJson.scripts['build:all'], /data:validate/u);
+  assert.equal('data:publish' in packageJson.scripts, false);
+});
+
 test('build:all runs the accepted stages in exact order', () => {
   assert.equal(
     packageJson.scripts['build:all'],
