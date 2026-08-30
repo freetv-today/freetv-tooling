@@ -8,6 +8,7 @@ import {
   resolveDatasetValidationPaths,
   validateDatasetPublication,
 } from '../scripts/lib/data-validation.js';
+import { runDataValidationCli } from '../scripts/data-validate.js';
 
 const SQL_FILES = [
   'freetv_mariadb_schema-create-db.sql',
@@ -147,11 +148,13 @@ test('successful validation derives counts from manifests and cleans all candida
   const expected = fixture(t);
   const dataBefore = treeSnapshot(expected.dataRoot);
   const mocked = mockRunner();
+  const output = [];
+  const logger = { log: (message) => output.push(message), warn() {} };
   const result = await validateDatasetPublication({
     toolingRoot: expected.toolingRoot,
     config: expected.config,
     commandRunner: mocked.runner,
-    logger: silentLogger,
+    logger,
     runId: 'abcdef123456',
   });
 
@@ -175,6 +178,23 @@ test('successful validation derives counts from manifests and cleans all candida
   assert.equal(fs.readFileSync(path.join(expected.toolingRoot, 'staging/keep.txt'), 'utf8'), 'keep');
   assert.equal(fs.readFileSync(path.join(expected.serverRoot, 'sql/canonical.sql'), 'utf8'), '-- keep');
   assert.deepEqual(treeSnapshot(expected.dataRoot), dataBefore);
+  assert.match(output.join('\n'), /GO — Dataset is safe to publish/u);
+  assert.doesNotMatch(output.join('\n'), /NO GO/u);
+});
+
+test('CLI failure prints NO GO, omits GO success, and returns nonzero', async () => {
+  const errors = [];
+  const status = await runDataValidationCli({
+    toolingRoot: '/unused',
+    configLoader: () => { throw new Error('invalid configuration fixture'); },
+    validator: async () => { throw new Error('validator must not run'); },
+    logger: { error: (message) => errors.push(message) },
+  });
+  const output = errors.join('\n');
+  assert.equal(status, 1);
+  assert.match(output, /NO GO — Dataset is not safe to publish/u);
+  assert.match(output, /invalid configuration fixture/u);
+  assert.doesNotMatch(output, /GO — Dataset is safe to publish/u);
 });
 
 test('Viewer/SQL count mismatch fails before restore validation and still cleans up', async (t) => {
@@ -238,4 +258,3 @@ test('symbolic-link repository configuration is rejected', { skip: process.platf
     /missing or is not a directory|symbolic link/u,
   );
 });
-

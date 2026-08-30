@@ -3,13 +3,26 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateDatasetPublication } from './lib/data-validation.js';
 
-const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const scriptPath = fileURLToPath(import.meta.url);
+const defaultToolingRoot = path.resolve(path.dirname(scriptPath), '..');
 
-try {
-  const config = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'config/paths.json'), 'utf8'));
-  await validateDatasetPublication({ toolingRoot, config });
-} catch (error) {
-  console.error(error.message);
-  process.exitCode = 1;
+export async function runDataValidationCli({
+  toolingRoot = defaultToolingRoot,
+  configLoader = (root) => JSON.parse(fs.readFileSync(path.join(root, 'config/paths.json'), 'utf8')),
+  validator = validateDatasetPublication,
+  logger = console,
+} = {}) {
+  try {
+    const config = configLoader(toolingRoot);
+    await validator({ toolingRoot, config, logger });
+    return 0;
+  } catch (error) {
+    logger.error('NO GO — Dataset is not safe to publish');
+    logger.error(error.message);
+    return 1;
+  }
 }
 
+if (path.resolve(process.argv[1] || '') === scriptPath) {
+  process.exitCode = await runDataValidationCli();
+}

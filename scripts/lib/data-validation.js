@@ -155,6 +155,8 @@ export function parseSqlPackageSummary(stdout) {
 
 function formatReport(result) {
   return [
+    'GO — Dataset is safe to publish',
+    '',
     'Dataset publication validation passed',
     '',
     `  Playlists:        ${result.playlistCount}`,
@@ -260,4 +262,3 @@ export async function validateDatasetPublication({
   logger.log(formatReport(result));
   return result;
 }
-
