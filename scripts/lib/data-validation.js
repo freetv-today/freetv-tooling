@@ -153,40 +153,12 @@ export function parseSqlPackageSummary(stdout) {
   return summary;
 }
 
-function formatReport(result) {
-  return [
-    'GO — Dataset is safe to publish',
-    '',
-    'Dataset publication validation passed',
-    '',
-    `  Playlists:        ${result.playlistCount}`,
-    `  Shows:            ${result.showCount}`,
-    `  Sample shows:     ${result.sampleShowCount}`,
-    `  Thumbnails:       ${result.thumbnailCount}`,
-    `  Thumbnail bytes:  ${result.thumbnailBytes}`,
-    '',
-    '  Viewer exports:   passed',
-    '  SQL generation:   passed',
-    '  SQL restores:     passed',
-    '  Pair equivalence: passed',
-    '  Cross-checks:     passed',
-    '',
-    'No dataset was published.',
-  ].join('\n');
-}
-
-export async function validateDatasetPublication({
-  toolingRoot,
-  config,
+export async function generateValidatedDatasetArtifacts({
+  paths,
   commandRunner = runValidationCommand,
   logger = console,
-  runId = crypto.randomBytes(6).toString('hex'),
-} = {}) {
-  const paths = resolveDatasetValidationPaths(toolingRoot, config, runId);
+}) {
   let stage = 'Viewer/data export';
-  let failure;
-  let result;
-
   try {
     const staged = await stageServerExports({
       toolingRoot: paths.toolingRoot,
@@ -236,15 +208,63 @@ export async function validateDatasetPublication({
       label: 'SQL package restore validator',
     });
 
+    return { ...staged, sqlSummary };
+  } catch (error) {
+    throw new Error(`Dataset publication validation failed during ${stage}: ${error.message}`, { cause: error });
+  }
+}
+
+function formatReport(result) {
+  return [
+    'GO — Dataset is safe to publish',
+    '',
+    'Dataset publication validation passed',
+    '',
+    `  Playlists:        ${result.playlistCount}`,
+    `  Shows:            ${result.showCount}`,
+    `  Sample shows:     ${result.sampleShowCount}`,
+    `  Thumbnails:       ${result.thumbnailCount}`,
+    `  Thumbnail bytes:  ${result.thumbnailBytes}`,
+    '',
+    '  Viewer exports:   passed',
+    '  SQL generation:   passed',
+    '  SQL restores:     passed',
+    '  Pair equivalence: passed',
+    '  Cross-checks:     passed',
+    '',
+    'No dataset was published.',
+  ].join('\n');
+}
+
+export async function validateDatasetPublication({
+  toolingRoot,
+  config,
+  commandRunner = runValidationCommand,
+  logger = console,
+  runId = crypto.randomBytes(6).toString('hex'),
+} = {}) {
+  const paths = resolveDatasetValidationPaths(toolingRoot, config, runId);
+  let failure;
+  let result;
+
+  try {
+    const staged = await generateValidatedDatasetArtifacts({
+      paths,
+      commandRunner,
+      logger,
+    });
+    const playlistCount = staged.dataManifest.dataset.playlist_count;
+    const showCount = staged.dataManifest.dataset.show_count;
+
     result = {
       playlistCount,
       showCount,
-      sampleShowCount: sqlSummary.sample_count,
+      sampleShowCount: staged.sqlSummary.sample_count,
       thumbnailCount: staged.thumbnailManifest.dataset.thumbnail_count,
       thumbnailBytes: staged.thumbnailManifest.dataset.total_bytes,
     };
   } catch (error) {
-    failure = new Error(`Dataset publication validation failed during ${stage}: ${error.message}`, { cause: error });
+    failure = error;
   }
 
   try {

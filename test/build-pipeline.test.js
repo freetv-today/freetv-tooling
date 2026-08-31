@@ -9,10 +9,11 @@ import { fileURLToPath } from 'node:url';
 const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'package.json'), 'utf8'));
 
-test('data validation is an explicit standalone command', () => {
+test('data validation and local publication are explicit standalone commands', () => {
   assert.equal(packageJson.scripts['data:validate'], 'node scripts/data-validate.js');
+  assert.equal(packageJson.scripts['data:publish'], 'node scripts/data-publish.js');
   assert.doesNotMatch(packageJson.scripts['build:all'], /data:validate/u);
-  assert.equal('data:publish' in packageJson.scripts, false);
+  assert.doesNotMatch(packageJson.scripts['build:all'], /data:publish/u);
 });
 
 test('build:all runs the accepted stages in exact order', () => {
