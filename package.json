@@ -28,6 +28,7 @@
     "content:compare": "node scripts/content-compare.js",
     "data:validate": "node scripts/data-validate.js",
     "data:publish": "node scripts/data-publish.js",
+    "release:build": "node scripts/release-build.js",
     "clean:thumbs": "node scripts/clean-thumbs.js",
     "test:assembly": "node --test test/production-assembly.test.js",
     "test:verification": "node --test test/production-verification.test.js",
