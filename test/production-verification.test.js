@@ -15,6 +15,9 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^admin(?:/.*)?$ /admin/index.html [L]
 
+# Never route API requests through the Viewer SPA fallback
+RewriteRule ^api(?:/|$) - [L]
+
 # Viewer SPA routes
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d

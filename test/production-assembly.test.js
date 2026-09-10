@@ -19,6 +19,9 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^admin(?:/.*)?$ /admin/index.html [L]
 
+# Never route API requests through the Viewer SPA fallback
+RewriteRule ^api(?:/|$) - [L]
+
 # Viewer SPA routes
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
@@ -161,6 +164,7 @@ test('valid production assembly succeeds', (t) => {
   const fixture = createWorkspace(t);
   const result = assembleProduction(fixture);
   assert.ok(result.validation.fileCount > 0);
+  assert.match(SPA_HTACCESS, /RewriteRule \^api\(\?:\/\|\$\) - \[L\]/);
   assert.equal(fs.readFileSync(path.join(fixture.outputRoot, 'public/.htaccess'), 'utf8'), SPA_HTACCESS);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/index.html')), true);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/admin/index.html')), true);
@@ -197,6 +201,16 @@ test('missing Viewer .htaccess fails', (t) => {
 test('invalid Viewer .htaccess fails', (t) => {
   const fixture = createWorkspace(t);
   writeFile(fixture.viewerRoot, 'dist/.htaccess', 'RewriteEngine Off\n');
+  assert.throws(() => assembleProduction(fixture), /Viewer .htaccess does not match the Viewer SPA fallback contract/);
+});
+
+test('outdated Viewer .htaccess without the API exclusion fails', (t) => {
+  const fixture = createWorkspace(t);
+  const outdatedHtaccess = SPA_HTACCESS.replace(
+    '# Never route API requests through the Viewer SPA fallback\nRewriteRule ^api(?:/|$) - [L]\n\n',
+    '',
+  );
+  writeFile(fixture.viewerRoot, 'dist/.htaccess', outdatedHtaccess);
   assert.throws(() => assembleProduction(fixture), /Viewer .htaccess does not match the Viewer SPA fallback contract/);
 });
 
