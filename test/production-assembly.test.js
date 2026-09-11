@@ -128,6 +128,9 @@ function createWorkspace(t) {
   writeFile(serverRoot, 'public/api/backup.sql', 'fixture');
   writeFile(serverRoot, 'composer.json', '{}\n');
   writeFile(serverRoot, 'composer.lock', '{}\n');
+  writeFile(serverRoot, 'resources/bootstrap/fresh.json', '{"fresh":true}\n');
+  writeFile(serverRoot, 'resources/freetv-baseline-sample-data.zip', 'baseline ZIP fixture');
+  writeFile(serverRoot, 'sql/freetv_mariadb_schema-tables-only.sql', 'CREATE TABLE fixture;\n');
   writeFile(serverRoot, 'vendor/autoload.php', '<?php');
   writeFile(serverRoot, 'vendor/package/src/Dependency.php', '<?php');
   writeFile(serverRoot, 'vendor/package/.git/config', 'fixture');
@@ -170,6 +173,38 @@ test('valid production assembly succeeds', (t) => {
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/admin/index.html')), true);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/api/index.php')), true);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'vendor/autoload.php')), true);
+  for (const relativePath of [
+    'resources/bootstrap/fresh.json',
+    'resources/freetv-baseline-sample-data.zip',
+    'sql/freetv_mariadb_schema-tables-only.sql',
+  ]) {
+    assert.deepEqual(
+      fs.readFileSync(path.join(fixture.outputRoot, relativePath)),
+      fs.readFileSync(path.join(fixture.serverRoot, relativePath)),
+    );
+  }
+});
+
+test('missing First Run source fails before replacing existing output', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'keep');
+  fs.rmSync(path.join(fixture.serverRoot, 'resources/bootstrap/fresh.json'));
+  assert.throws(() => assembleProduction(fixture), /Server First Run runtime input.*fresh\.json.*is missing/);
+  assert.equal(fs.readFileSync(path.join(fixture.outputRoot, 'keep.txt'), 'utf8'), 'keep');
+});
+
+test('missing assembled First Run input fails validation', (t) => {
+  const fixture = createWorkspace(t);
+  const result = assembleProduction(fixture);
+  fs.rmSync(path.join(fixture.outputRoot, 'sql/freetv_mariadb_schema-tables-only.sql'));
+  assert.throws(
+    () => validateProductionOutput({
+      paths: result.paths,
+      dataManifest: fixture.dataManifest,
+      thumbnailManifest: fixture.thumbnailManifest,
+    }),
+    /Production First Run SQL is missing required root entries: freetv_mariadb_schema-tables-only\.sql/,
+  );
 });
 
 test('missing Viewer dist fails before replacing existing output', (t) => {
@@ -323,7 +358,14 @@ test('only declared ownership roots appear in production', (t) => {
   const fixture = createWorkspace(t);
   assembleProduction(fixture);
   assert.deepEqual(fs.readdirSync(fixture.outputRoot).sort(), [
-    'composer.json', 'composer.lock', 'public', 'temp', 'vendor',
+    'composer.json', 'composer.lock', 'public', 'resources', 'sql', 'temp', 'vendor',
+  ]);
+  assert.deepEqual(fs.readdirSync(path.join(fixture.outputRoot, 'resources')).sort(), [
+    'bootstrap', 'freetv-baseline-sample-data.zip',
+  ]);
+  assert.deepEqual(fs.readdirSync(path.join(fixture.outputRoot, 'resources/bootstrap')), ['fresh.json']);
+  assert.deepEqual(fs.readdirSync(path.join(fixture.outputRoot, 'sql')), [
+    'freetv_mariadb_schema-tables-only.sql',
   ]);
   assert.deepEqual(fs.readdirSync(path.join(fixture.outputRoot, 'public')).sort(), [
     '.htaccess', 'admin', 'api', 'assets', 'config.json', 'index.html', 'manifest.json',

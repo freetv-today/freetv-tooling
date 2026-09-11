@@ -106,6 +106,9 @@ function createFixture(t) {
 
   writeFile(outputRoot, 'composer.json', '{}\n');
   writeFile(outputRoot, 'composer.lock', '{}\n');
+  writeFile(outputRoot, 'resources/bootstrap/fresh.json', '{"fresh":true}\n');
+  writeFile(outputRoot, 'resources/freetv-baseline-sample-data.zip', 'baseline ZIP fixture');
+  writeFile(outputRoot, 'sql/freetv_mariadb_schema-tables-only.sql', 'CREATE TABLE fixture;\n');
   writeFile(outputRoot, 'vendor/autoload.php', '<?php\n');
   fs.mkdirSync(path.join(outputRoot, 'temp/publication-undo'), { recursive: true });
   fs.mkdirSync(path.join(outputRoot, 'temp/thumbnail-undo'), { recursive: true });
@@ -185,7 +188,7 @@ test('valid package passes without modifying it', (t) => {
   const fixture = createFixture(t);
   const before = treeSnapshot(fixture.outputRoot);
   const result = verifyFixture(fixture);
-  assert.equal(result.application.packageFileCount, 24);
+  assert.equal(result.application.packageFileCount, 27);
   assert.equal(result.data.playlistCount, 1);
   assert.equal(result.data.showCount, 1);
   assert.equal(result.thumbnails.fileCount, 1);
@@ -196,6 +199,15 @@ test('missing required application root fails', (t) => {
   const fixture = createFixture(t);
   fs.rmSync(path.join(fixture.outputRoot, 'composer.lock'));
   assert.throws(() => verifyFixture(fixture), /missing required root entries/);
+});
+
+test('missing First Run runtime input fails verification', (t) => {
+  const fixture = createFixture(t);
+  fs.rmSync(path.join(fixture.outputRoot, 'resources/freetv-baseline-sample-data.zip'));
+  assert.throws(
+    () => verifyFixture(fixture),
+    /Production First Run resources is missing required root entries: freetv-baseline-sample-data\.zip/,
+  );
 });
 
 test('unexpected application root entry fails', (t) => {

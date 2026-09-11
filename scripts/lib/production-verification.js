@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { validateDataManifest, validateThumbnailManifest } from './export-staging.js';
-import { resolveAssemblyPaths, validateProductionOutput } from './production-assembly.js';
+import {
+  FIRST_RUN_RUNTIME_FILES,
+  resolveAssemblyPaths,
+  validateProductionOutput,
+} from './production-assembly.js';
 
 const NON_VENDOR_FORBIDDEN_DIRECTORIES = new Set([
   '.git', 'logs', 'node_modules', 'sql', 'src', 'support', 'test', 'tests', 'tools',
@@ -13,6 +17,7 @@ const FORBIDDEN_FILE_EXTENSIONS = new Set([
   '.bak', '.backup', '.dump', '.key', '.old', '.orig', '.p12', '.pem', '.pfx', '.sql', '.swp', '.tmp',
 ]);
 const FORBIDDEN_FILENAMES = new Set(['.ds_store']);
+const FIRST_RUN_RUNTIME_FILE_SET = new Set(FIRST_RUN_RUNTIME_FILES.map((relativePath) => relativePath.toLowerCase()));
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -58,17 +63,23 @@ function validateSecurityDebris(outputRoot) {
     const lowerSegments = segments.map((segment) => segment.toLowerCase());
     const inVendor = lowerSegments[0] === 'vendor';
     const basename = lowerSegments.at(-1);
+    const normalizedPath = lowerSegments.join('/');
+    const isFirstRunRuntimeFile = FIRST_RUN_RUNTIME_FILE_SET.has(normalizedPath);
+    const isFirstRunRuntimeDirectory = FIRST_RUN_RUNTIME_FILES.some(
+      (runtimePath) => runtimePath.startsWith(`${normalizedPath}/`),
+    );
 
     if (entry.isDirectory()) {
       const forbidden = inVendor ? VENDOR_FORBIDDEN_DIRECTORIES : NON_VENDOR_FORBIDDEN_DIRECTORIES;
-      if (forbidden.has(basename)) {
+      if (forbidden.has(basename) && !isFirstRunRuntimeDirectory) {
         throw new Error(`Production contains forbidden development directory: ${relativePath}`);
       }
       continue;
     }
     if (!entry.isFile()) continue;
     if (basename === '.env' || basename.startsWith('.env.') || basename.endsWith('~')
-      || FORBIDDEN_FILENAMES.has(basename) || FORBIDDEN_FILE_EXTENSIONS.has(path.extname(basename))) {
+      || FORBIDDEN_FILENAMES.has(basename)
+      || (FORBIDDEN_FILE_EXTENSIONS.has(path.extname(basename)) && !isFirstRunRuntimeFile)) {
       throw new Error(`Production contains forbidden secret/development artifact: ${relativePath}`);
     }
   }

@@ -11,7 +11,9 @@ const VIEWER_ROOT_ENTRIES = new Set([
   'service-worker.js',
 ]);
 const ADMIN_ROOT_ENTRIES = new Set(['assets', 'index.html']);
-const PRODUCTION_ROOT_ENTRIES = new Set(['composer.json', 'composer.lock', 'public', 'temp', 'vendor']);
+const PRODUCTION_ROOT_ENTRIES = new Set([
+  'composer.json', 'composer.lock', 'public', 'resources', 'sql', 'temp', 'vendor',
+]);
 const PUBLIC_ROOT_ENTRIES = new Set([
   '.htaccess',
   'admin',
@@ -25,6 +27,14 @@ const PUBLIC_ROOT_ENTRIES = new Set([
   'thumbs',
 ]);
 const TEMP_ROOT_ENTRIES = new Set(['publication-undo', 'thumbnail-undo']);
+export const FIRST_RUN_RUNTIME_FILES = Object.freeze([
+  'resources/bootstrap/fresh.json',
+  'resources/freetv-baseline-sample-data.zip',
+  'sql/freetv_mariadb_schema-tables-only.sql',
+]);
+const FIRST_RUN_RESOURCES_ROOT_ENTRIES = new Set(['bootstrap', 'freetv-baseline-sample-data.zip']);
+const FIRST_RUN_BOOTSTRAP_ENTRIES = new Set(['fresh.json']);
+const FIRST_RUN_SQL_ENTRIES = new Set(['freetv_mariadb_schema-tables-only.sql']);
 const FRONTEND_ASSET_EXTENSIONS = new Set([
   '.css', '.gif', '.html', '.jpg', '.js', '.nfo', '.png', '.svg', '.ttf',
 ]);
@@ -395,12 +405,24 @@ export function validateProductionOutput({ paths, dataManifest, thumbnailManifes
   assertExactEntries(outputRoot, PRODUCTION_ROOT_ENTRIES, 'Production output');
   assertExactEntries(publicRoot, PUBLIC_ROOT_ENTRIES, 'Production public root');
   assertExactEntries(path.join(publicRoot, 'admin'), ADMIN_ROOT_ENTRIES, 'Production Admin root');
+  assertExactEntries(
+    path.join(outputRoot, 'resources'),
+    FIRST_RUN_RESOURCES_ROOT_ENTRIES,
+    'Production First Run resources',
+  );
+  assertExactEntries(
+    path.join(outputRoot, 'resources/bootstrap'),
+    FIRST_RUN_BOOTSTRAP_ENTRIES,
+    'Production Fresh bootstrap resources',
+  );
+  assertExactEntries(path.join(outputRoot, 'sql'), FIRST_RUN_SQL_ENTRIES, 'Production First Run SQL');
   assertExactEntries(path.join(outputRoot, 'temp'), TEMP_ROOT_ENTRIES, 'Production temp root');
 
   for (const relativePath of [
     'composer.json',
     'composer.lock',
     'vendor/autoload.php',
+    ...FIRST_RUN_RUNTIME_FILES,
     'public/.htaccess',
     'public/index.html',
     'public/manifest.json',
@@ -460,6 +482,13 @@ function validatePreconditions(paths) {
   requirePath(apiRoot, 'directory', 'Server public/api');
   requirePath(path.join(paths.serverRoot, 'composer.json'), 'file', 'Server composer.json');
   requirePath(path.join(paths.serverRoot, 'composer.lock'), 'file', 'Server composer.lock');
+  for (const relativePath of FIRST_RUN_RUNTIME_FILES) {
+    requirePath(
+      path.join(paths.serverRoot, relativePath),
+      'file',
+      `Server First Run runtime input ${relativePath}`,
+    );
+  }
   requirePath(vendorRoot, 'directory', 'Server vendor');
   requirePath(path.join(vendorRoot, 'autoload.php'), 'file', 'Server vendor/autoload.php');
   assertTreeHasNoSecretsOrSymlinks(vendorRoot, 'Server vendor');
@@ -511,6 +540,14 @@ export function assembleProduction({ toolingRoot, config }) {
     copyTreeOwned(inputs.apiRoot, path.join(paths.publicRoot, 'api'), 'Server API', ownership, inputs.apiEntries.included);
     copyFileOwned(path.join(paths.serverRoot, 'composer.json'), path.join(paths.outputRoot, 'composer.json'), 'Composer', ownership);
     copyFileOwned(path.join(paths.serverRoot, 'composer.lock'), path.join(paths.outputRoot, 'composer.lock'), 'Composer', ownership);
+    for (const relativePath of FIRST_RUN_RUNTIME_FILES) {
+      copyFileOwned(
+        path.join(paths.serverRoot, relativePath),
+        path.join(paths.outputRoot, relativePath),
+        'Server First Run',
+        ownership,
+      );
+    }
     copyTreeOwned(
       inputs.vendorRoot,
       path.join(paths.outputRoot, 'vendor'),
