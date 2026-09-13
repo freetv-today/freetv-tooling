@@ -25,15 +25,49 @@ For help choosing the appropriate repository, see the [FreeTV organization overv
 - Run repository maintenance and data-validation utilities
 - Support advanced canonical dataset and First Run release-package workflows
 
+## Requirements
+
+### System Requirements
+
+- Node.js 22 or newer
+- npm
+- PHP 8.4.1 or newer
+- Composer
+- MariaDB when running the Admin Dashboard
+- A modern web browser for Viewer and Admin development
+
+The PHP backend also requires the PHP extensions documented in the [`freetv-server` requirements](https://github.com/freetv-today/freetv-server#requirements).
+
+### Repository Requirements
+
+The complete Tooling workflow expects local copies of:
+
+- `freetv-tooling`
+- `freetv-server`
+- `freetv-viewer`
+- `freetv-data`
+
+Individual commands may require only some of these repositories. For example, `npm run dev:viewer` requires the Viewer, while `npm run dev:all` requires the Viewer, Admin Dashboard, and PHP backend.
+
+Install npm dependencies separately in:
+
+- `freetv-tooling`
+- `freetv-server`
+- `freetv-viewer`
+
+Run `composer install` in `freetv-server` to install the PHP runtime dependencies required by the Admin API and production assembly.
+
+FreeTV Tooling does not install MariaDB, create database accounts, initialize the Admin database, or install sibling-repository dependencies automatically.
+
 ## Repository layout
 
-Expected sibling structure:
+Expected directory structure:
 
 ```text
+freetv-data/
+freetv-server/
 freetv-tooling/
-../freetv-data/
-../freetv-viewer/
-../freetv-server/
+freetv-viewer/
 ```
 
 The exact paths are controlled by `config/paths.json`.
