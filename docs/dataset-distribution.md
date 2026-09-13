@@ -4,7 +4,7 @@ This document describes FreeTV’s advanced canonical-dataset and First Run rele
 
 These workflows are intended for the FreeTV project maintainer or another operator who wants to maintain and distribute a complete FreeTV dataset from their own repository or hosting environment. They are not required for ordinary Admin Dashboard or Viewer development.
 
-Most administrators only need to organize content in the FreeTV Admin Dashboard and use **Publish** to export static JSON for their Viewer. That normal Viewer-publication workflow is documented in the [`freetv-server` README](https://github.com/freetv-today/freetv-server#publishing).
+Most administrators only need to organize content in the FreeTV Admin Dashboard and use **Publish** to export static JSON for their Viewer. That normal Viewer-publication workflow is documented in the [`freetv-server` README](https://github.com/freetv-today/freetv-server#publishing-viewer-data).
 
 > [!IMPORTANT]
 > FreeTV Tooling prepares and validates files locally. It does not commit changes, push to GitHub, create GitHub releases, upload release packages, update a remote server, or deploy FreeTV. Those remain deliberate operator actions.
@@ -21,7 +21,7 @@ FreeTV uses several related but distinct publication workflows:
 | Data Snapshot | FreeTV Admin Dashboard | Capture a point-in-time copy of Admin content and thumbnails for reconciliation. | A validated production-content snapshot ZIP. |
 | Dataset reconciliation | FreeTV Tooling | Compare a production snapshot with the current canonical `freetv-data` repository. | A read-only difference report. |
 | Dataset publication | FreeTV Tooling | Generate and validate Viewer artifacts, thumbnails, SQL packages, and publication metadata from the current Admin environment. | Updated managed content in the local `freetv-data` repository. |
-| Dataset release packaging | FreeTV Tooling | Build the distributable Current Sample Data and Current Official Data packages used by First Run. | Two validated ZIP archives with package metadata and SHA-256 digests. |
+| Dataset release packaging | FreeTV Tooling | Build the distributable Current Sample Data and Current Official Data packages used by First Run. | Two validated ZIP archives with internal manifests. |
 | Dataset distribution | Deployment operator | Make the validated packages and their metadata available to other FreeTV installations. | Uploaded packages and a configured metadata endpoint. |
 
 ## Supported Workflow

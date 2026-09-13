@@ -191,6 +191,9 @@ values are treated as unset and replaced with the generated localhost target.
 freetv-tooling/
 ├── config/
 │   └── paths.json             Repository, staging, output, and port configuration
+├── docs/
+│   └── dataset-distribution.md
+│                              Canonical dataset and First Run distribution guide
 ├── scripts/
 │   ├── lib/                   Shared validation, staging, assembly, and development utilities
 │   ├── dev-*.js               Development-data and application launchers
@@ -261,7 +264,7 @@ No command in this workflow commits changes, creates a GitHub release, uploads f
 | `npm run test:verification` | Run the focused production-verification contract tests. |
 | `npm test` | Run the complete Tooling test suite. |
 
-Advanced canonical-dataset publication and First Run release-package commands are intentionally documented separately from the normal development and production-assembly workflows.
+Advanced canonical-dataset publication and First Run release-package workflows are documented separately in [Dataset Publishing and Distribution](docs/dataset-distribution.md).
 
 ## Production Output
 
