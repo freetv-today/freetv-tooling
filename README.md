@@ -1,25 +1,29 @@
-# freetv-tooling
+# FreeTV Tooling
 
-`freetv-tooling` is the orchestration repo for the Free TV project. It coordinates development, builds, assembly, and verification across:
+`freetv-tooling` coordinates development, validation, builds, data workflows, and production assembly across the FreeTV repositories:
 
-- `freetv-viewer`
 - `freetv-server`
+- `freetv-viewer`
 - `freetv-data`
 
-The goal is to make local development, production assembly, and future deployment workflows reproducible from a single place.
+Each FreeTV repository can be developed independently when appropriate. Use FreeTV Tooling when a task crosses repository boundaries, such as running the complete local development environment, installing Viewer development data, or building a verified production assembly.
 
-## What it does
+FreeTV Tooling prepares files locally. It does not automatically commit changes, create GitHub releases, upload files, or deploy FreeTV.
 
-This repo provides scripts to:
+For help choosing the appropriate repository, see the [FreeTV organization overview](https://github.com/freetv-today).
 
-- run FreeTV Viewer and FreeTV Admin Dashboard in local development on separate ports,
-- start a lightweight PHP API Server for Admin API requests,
-- build each repo independently,
-- stage Server-owned Viewer data and thumbnails,
-- assemble a validated local production package,
-- verify that the expected deployment paths exist,
-- report whether the sibling repos are present,
-- compare a downloaded Production Content Snapshot with the local canonical data.
+## Features
+
+- Coordinate the Admin Dashboard, Viewer, PHP backend, and Data repositories
+- Run the complete FreeTV development environment from one command
+- Configure repository paths, development ports, base paths, and production output
+- Install and reset disposable Viewer development data
+- Build the Viewer and Admin Dashboard independently or together
+- Stage validated Admin-published data and thumbnails
+- Assemble and independently verify a complete production build
+- Detect occupied development ports before starting local services
+- Run repository maintenance and data-validation utilities
+- Support advanced canonical dataset and First Run release-package workflows
 
 ## Repository layout
 
