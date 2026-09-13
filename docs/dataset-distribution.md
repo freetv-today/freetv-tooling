@@ -9,6 +9,8 @@ Most administrators only need to organize content in the FreeTV Admin Dashboard 
 > [!IMPORTANT]
 > FreeTV Tooling prepares and validates files locally. It does not commit changes, push to GitHub, create GitHub releases, upload release packages, update a remote server, or deploy FreeTV. Those remain deliberate operator actions.
 
+The v3 dataset validation and release contracts are specific to the official FreeTV dataset. An operator can mirror that dataset and distribution pipeline, but publishing an independently structured white-label dataset would require adapting the validation and packaging contracts. Simplified white-label support is planned for a future FreeTV release.
+
 ## Workflow Terminology
 
 FreeTV uses several related but distinct publication workflows:
@@ -57,7 +59,7 @@ The Admin environment used for dataset generation must also have:
 - the current FreeTV database schema;
 - readable thumbnails;
 - PHP CLI and the PHP extensions required by `freetv-server`; and
-- sufficient database privileges to generate and restore the SQL packages used by the validation gate.
+- a MariaDB account that can read the configured FreeTV database and create and drop the disposable `freetv_test_*` databases used by the SQL restore-validation gate.
 
 Run the Tooling test suite and confirm the configured repository paths before beginning:
 
@@ -253,3 +255,108 @@ No content differences found.
 > Differences are findings for operator review, not command failures. `content:compare` can exit successfully while reporting production-only, local-only, or changed content. A nonzero exit indicates that the command arguments or one of the inputs could not be safely read or validated.
 
 Review every unexpected difference before continuing. This comparison does not decide which side is correct and does not reconcile either side automatically.
+
+## Validating a Dataset
+
+Run the mandatory dataset validation gate before publishing changes to `freetv-data`.
+
+From `freetv-tooling`, run:
+
+```bash
+npm run data:validate
+```
+
+This command does not accept a snapshot argument. It validates fresh artifacts generated from the MariaDB database and thumbnail directory configured for the local `freetv-server` environment.
+
+### Validation Process
+
+Tooling performs these operations:
+
+1. Create a temporary validation workspace beneath the configured Tooling staging directory.
+2. Export current Viewer configuration and playlist JSON from MariaDB.
+3. Export the current thumbnails.
+4. Validate the export manifests, counts, file sizes, SHA-256 digests, paths, and contents.
+5. Generate six SQL packages:
+
+   * schema with database creation;
+   * schema tables only;
+   * complete dataset with database creation;
+   * complete dataset tables only;
+   * sample dataset with database creation; and
+   * sample dataset tables only.
+6. Cross-check the Viewer export counts against the generated SQL package counts.
+7. Restore every SQL package into a uniquely named disposable MariaDB database.
+8. Validate the restored schema, records, defaults, relationships, ordering, and sample-data requirements.
+9. Confirm that each create-database package is logically equivalent to its corresponding tables-only package.
+10. Drop the disposable validation databases and remove the temporary validation workspace.
+
+The disposable databases use names matching:
+
+```text
+freetv_test_<package>_<form>_<random-suffix>
+```
+
+The validator restricts database names to this pattern before creating or dropping them.
+
+### Database Safety Boundary
+
+SQL generation reads the configured FreeTV database but does not modify it. Admin users, problem reports, report IPs, and locally configured application-setting values are not serialized into the distributable data packages.
+
+SQL restore validation does create and drop separate disposable databases. The configured MariaDB account must therefore have permission to:
+
+* read the source FreeTV database;
+* create databases;
+* create tables and other schema objects within the disposable databases;
+* read the restored schema and records; and
+* drop the disposable databases after validation.
+
+The validation process does not intentionally create, replace, or drop the configured source database.
+
+> [!CAUTION]
+> Do not run the validation gate with database credentials that can affect unrelated databases unless their privileges are appropriately constrained. The code restricts its generated database names, but database permissions remain an operator responsibility.
+
+### Validation Results
+
+A successful run reports:
+
+```text
+GO — Dataset is safe to publish
+```
+
+The report includes playlist, complete-show, sample-show, and thumbnail counts and confirms that these checks passed:
+
+* Viewer exports
+* SQL generation
+* SQL restores
+* package-pair equivalence
+* cross-checks
+
+It ends with:
+
+```text
+No dataset was published.
+```
+
+A failed run reports:
+
+```text
+NO GO — Dataset is not safe to publish
+```
+
+and exits with a nonzero status.
+
+A cleanup failure also makes the validation fail. Review any retained temporary state or disposable database reported by the command before running it again.
+
+### What Validation Does Not Do
+
+`data:validate` does not:
+
+* use or modify the previously captured Data Snapshot;
+* update `freetv-data`;
+* replace the canonical SQL files in `freetv-server`;
+* commit or push Git changes;
+* build First Run release ZIPs;
+* upload anything; or
+* deploy FreeTV.
+
+The separately captured snapshot establishes the production state being reconciled. The validation gate establishes that fresh artifacts generated from the current local Admin environment satisfy the dataset publication contract.
