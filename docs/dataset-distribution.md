@@ -486,3 +486,140 @@ Publication does not:
 * update dataset-package metadata; or
 * deploy FreeTV.
 
+## Building Dataset Release Packages
+
+After publishing and reviewing the canonical `freetv-data` contents, build the First Run dataset packages.
+
+From `freetv-tooling`, run:
+
+```bash
+npm run release:build
+```
+
+The command accepts no additional arguments. It reads the canonical dataset from the repository configured by `repos.data`.
+
+`release:build` validates the canonical repository and the generated packages, but it does not rerun `data:validate` against MariaDB. Complete dataset validation and publication before building release packages.
+
+Creating and validating the archives requires both `zip` and `unzip` to be available on the system path.
+
+### Generated Packages
+
+The command creates or replaces:
+
+```text
+freetv-data/
+└── releases/
+    ├── freetv-sample-data.zip
+    └── freetv-official-data.zip
+```
+
+These packages correspond to the Admin Dashboard’s First Run modes:
+
+| Package                    | First Run mode        | Contents                                                                                                                                                     |
+| -------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `freetv-sample-data.zip`   | Current Sample Data   | Representative sample SQL, Viewer configuration, all playlist definitions with sampled shows, and thumbnails referenced by the sampled shows when available. |
+| `freetv-official-data.zip` | Current Official Data | Complete official SQL, Viewer configuration, all playlist data, and the complete canonical thumbnail collection.                                             |
+
+Both packages use tables-only SQL. They are intended to initialize an already selected database and do not create or select a database themselves.
+
+### Package Contents
+
+Each ZIP contains its payload directly at the archive root:
+
+```text
+manifest.json
+database.sql
+config.json
+playlists/
+├── index.json
+└── *.json
+thumbs/
+└── image files
+```
+
+The package contract permits:
+
+* `database.sql`;
+* `config.json`;
+* playlist JSON files;
+* JPG, JPEG, PNG, or WebP thumbnails; and
+* `manifest.json`.
+
+Unexpected files, directories, unsafe paths, symbolic links, duplicate paths, and case-conflicting paths cause validation to fail.
+
+### Package Manifest
+
+Each package’s `manifest.json` contains:
+
+* `format_version`, which must equal `1`;
+* `dataset`, which is either `sample` or `official`;
+* the UTC package-generation timestamp; and
+* an exact inventory mapping every payload file to its lowercase SHA-256 digest.
+
+The manifest describes files inside the package. It does not contain the SHA-256 digest of the complete ZIP archive. The complete-archive digest used by First Run metadata must be calculated after the final ZIP has been generated.
+
+### Package Validation
+
+Before promotion, Tooling validates that:
+
+* the canonical `freetv-data` manifest matches the actual playlist, show, and thumbnail counts;
+* `sample_shows` is present in the canonical manifest;
+* the required canonical tables-only SQL files exist;
+* each package contains its exact required payload;
+* every manifest SHA-256 digest matches its file;
+* `database.sql` is a tables-only SQL artifact;
+* the SQL and Viewer representations contain matching playlists and shows;
+* corresponding SQL and Viewer fields agree;
+* the sample package contains the expected sample-show count;
+* the official package contains the complete canonical playlist and show counts; and
+* each completed ZIP can be safely listed, extracted, and validated again.
+
+The sample Viewer artifacts are derived from the sample SQL selection. The official Viewer artifacts are copied from the complete canonical dataset.
+
+### Release Transaction and Rollback
+
+Tooling builds both packages in temporary staging before changing `freetv-data/releases/`.
+
+Promotion uses a temporary transaction directory named like:
+
+```text
+freetv-data/releases/.freetv-release-<transaction-id>
+```
+
+The transaction prepares and revalidates both ZIPs before replacing either final archive.
+
+If promotion fails and rollback succeeds, Tooling restores the previous release ZIPs and removes the transaction directory.
+
+If rollback is incomplete, the transaction directory is retained for recovery. Stop and inspect `freetv-data/releases/` before making changes or retrying the command.
+
+Tooling refuses to begin a new release promotion while an unresolved `.freetv-release-*` transaction exists.
+
+If the ZIPs were promoted but transaction or staging cleanup fails, the release files may already have been replaced even though the command exits with an error. Inspect the reported paths and both final archives before retrying.
+
+### Successful Release Build
+
+A successful run reports:
+
+```text
+Current First Run release packages built and validated
+```
+
+and displays the local path of each completed archive.
+
+After the build:
+
+1. Review the files in `freetv-data/releases/`.
+2. Calculate and record the SHA-256 digest of each complete ZIP.
+3. Upload or otherwise distribute the ZIPs manually.
+4. Configure the metadata endpoint with the final HTTPS URLs and complete-archive digests.
+5. Test First Run against that metadata endpoint.
+
+`release:build` does not:
+
+* commit or push files;
+* create a GitHub release;
+* upload either ZIP;
+* calculate or configure the complete-archive SHA-256 values used by the metadata endpoint;
+* update a remote server; or
+* deploy FreeTV.
+
