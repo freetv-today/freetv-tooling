@@ -185,6 +185,32 @@ and the Admin Dashboard API proxy automatically uses the same port. An explicit,
 non-blank `VITE_API_PROXY_TARGET` is passed through unchanged; empty or whitespace-only
 values are treated as unset and replaced with the generated localhost target.
 
+## Project Structure
+
+```text
+freetv-tooling/
+├── config/
+│   └── paths.json             Repository, staging, output, and port configuration
+├── scripts/
+│   ├── lib/                   Shared validation, staging, assembly, and development utilities
+│   ├── dev-*.js               Development-data and application launchers
+│   ├── build-*.js             Frontend build and export-staging orchestration
+│   ├── assemble.js            Production package assembly
+│   ├── verify.js              Independent production-package verification
+│   ├── clean-thumbs.js        Admin thumbnail maintenance
+│   ├── content-compare.js     Advanced dataset comparison
+│   ├── data-*.js              Canonical dataset validation and publication
+│   └── release-build.js       First Run dataset release-package builder
+├── staging/                   Generated data and thumbnail staging area
+├── test/                      Tooling and contract tests
+├── package.json               npm commands and runtime metadata
+├── package-lock.json          Locked npm dependencies
+├── LICENSE                    GNU GPL version 3 license
+└── README.md                  Tooling operating documentation
+```
+
+The staging/ directory is generated as needed, ignored by Git, and may be replaced by Tooling during export staging.
+
 ## Scripts
 
 The [`How do I...?`](#how-do-i---) table covers the most common workflows. This section provides a concise command reference, including the lower-level commands used by the production pipeline.
@@ -308,6 +334,7 @@ Remove the installed development data when it is no longer needed:
 ```bash
 npm run dev:clean-viewer-data
 ```
+
 This cleanup affects only the three disposable paths listed above. Other files in `freetv-viewer/public/` are preserved.
 
 ## Troubleshooting
@@ -328,7 +355,7 @@ On Linux or macOS, identify the process using a port with:
 
 ```bash
 lsof -i :5174
-````
+```
 
 Terminate a stale FreeTV development process normally:
 
@@ -348,3 +375,7 @@ taskkill /PID <PID>
 Use `taskkill /PID <PID> /F` only if normal termination fails.
 
 Substitute `5173` or `8081` when checking the Viewer or PHP API port. If the port belongs to a legitimate unrelated service, do not terminate it. Change the corresponding port in `config/paths.json` or use the temporary environment-variable override documented under [Development Ports](#development-ports).
+
+## License
+
+FreeTV Tooling is licensed under the [GNU General Public License version 3](LICENSE).
