@@ -68,7 +68,7 @@ freetv-data/
 freetv-server/
 freetv-tooling/
 freetv-viewer/
-````
+```
 
 Different locations can be configured later in `config/paths.json`.
 
@@ -93,11 +93,12 @@ Install a disposable copy of the current `freetv-data` Viewer artifacts:
 npm run dev:install-viewer-data
 ```
 
-🛈 Note: the installed Viewer data is disposable local development state. When it is no longer needed, you can remove it with:
-
-```bash
-npm run dev:clean-viewer-data
-```
+> [!NOTE]
+> The installed Viewer data is disposable local development state. When it is no longer needed, you can remove it with:
+>
+> ```bash
+> npm run dev:clean-viewer-data
+> ```
 
 Start the Viewer, Admin Dashboard, and PHP backend together:
 
