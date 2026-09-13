@@ -283,38 +283,31 @@ The production package deliberately contains no `.env`. Deployment operators mus
 
 A successful build produces a verified local deployment package. Tooling does not upload or deploy it.
 
-## Development workflow
+## Viewer Development Data
 
-For Viewer development, install a fresh development-data snapshot before starting Vite:
+The Viewer requires static JSON and thumbnail artifacts but does not require a local PHP backend for normal viewing. Tooling can install the current distributable artifacts from `freetv-data` into the Viewer:
 
 ```bash
 npm run dev:install-viewer-data
-npm run dev:viewer
+````
+
+This command resets these paths in `freetv-viewer/public/`:
+
+```text
+config.json
+playlists/
+thumbs/
 ```
 
-The installed `public/config.json`, `public/playlists/`, and `public/thumbs/` files
-inside `freetv-viewer` are disposable local development state. Rerunning
-`dev:install-viewer-data` completely resets those three paths to the current
-configured `freetv-data` snapshot, including removal of stale files. Do not edit
-`freetv-data` through these Viewer copies, and do not commit the copies from the
-Viewer repository.
+These files are disposable local development state. Rerunning the command removes stale files and restores all three paths from the currently configured `freetv-data` repository.
 
-When the local copies are no longer needed, they can be removed explicitly:
+Do not edit the installed Viewer copies as the source of a dataset, and do not commit them from the Viewer repository. The distributable source files belong in `freetv-data`, while MariaDB remains authoritative for working Admin data.
+
+Remove the installed development data when it is no longer needed:
 
 ```bash
 npm run dev:clean-viewer-data
 ```
-
-`freetv-data` is the published dataset used for development and distribution.
-Authoritative working content is maintained by the FreeTV Admin/server system.
-
-The broader typical local workflow is:
-
-1. Check repo paths with `npm run status`.
-2. Start everything with `npm run dev:all`.
-3. Work in the Viewer or Admin repository directly.
-4. Run the full local production pipeline with `npm run build:all`.
-5. Inspect the verified package in the configured production output directory.
 
 ## Troubleshooting
 
