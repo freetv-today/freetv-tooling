@@ -158,17 +158,6 @@ PHP_PORT=8082 npm run dev:all
 
 This changes the PHP backend port for that command without modifying `config/paths.json`.
 
-### Important settings
-
-- `repos.data`, `repos.viewer`, `repos.server`: relative paths to the sibling repos.
-- `staging.*`: Tooling-owned Server export staging paths.
-- `output.root`: root directory for assembled production files.
-- `dev.viewerPort`: FreeTV Viewer Vite port (default `5173`).
-- `dev.serverPort`: FreeTV Admin Dashboard Vite port (default `5174`).
-- `dev.phpPort`: PHP API Server port (default `8081`).
-- `dev.viewerBase`: base path for the viewer app.
-- `dev.adminBase`: base path for the admin app.
-
 ## Scripts
 
 ### Development

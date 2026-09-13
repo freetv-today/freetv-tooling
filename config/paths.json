@@ -1,5 +1,4 @@
 {
-  "root": ".",
   "repos": {
     "data": "../freetv-data",
     "viewer": "../freetv-viewer",
