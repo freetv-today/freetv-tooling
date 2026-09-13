@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   assertDevelopmentPortAvailable,
   DEVELOPMENT_PRODUCTS,
+  resolveAdminApiProxyTarget,
   resolveDevelopmentPort,
 } from './lib/development.js';
 
@@ -17,28 +18,45 @@ const adminRoot = path.resolve(toolingRoot, config.repos.server);
 const label = DEVELOPMENT_PRODUCTS.admin;
 const port = resolveDevelopmentPort(process.env.ADMIN_PORT || config.dev.serverPort, label);
 
-try {
-  if (process.env.FREETV_SKIP_PORT_PREFLIGHT !== '1') {
-    await assertDevelopmentPortAvailable({ label, port });
-  }
-} catch (error) {
-  console.error(error.message);
-  process.exitCode = 1;
+export function spawnAdminVite({
+  environment = process.env,
+  configuredPhpPort = config.dev.phpPort,
+  adminDirectory = adminRoot,
+  adminPort = port,
+  spawnProcess = spawn,
+} = {}) {
+  const apiProxyTarget = resolveAdminApiProxyTarget({ environment, configuredPhpPort });
+  return spawnProcess(
+    'npm',
+    ['run', 'dev', '--', '--host', '0.0.0.0', '--port', String(adminPort), '--strictPort'],
+    {
+      cwd: adminDirectory,
+      stdio: 'inherit',
+      env: { ...environment, VITE_API_PROXY_TARGET: apiProxyTarget },
+    },
+  );
 }
 
-if (process.exitCode !== 1) {
-  console.log(`${label} starting on port ${port}.`);
-  const dev = spawn(
-    'npm',
-    ['run', 'dev', '--', '--host', '0.0.0.0', '--port', String(port), '--strictPort'],
-    { cwd: adminRoot, stdio: 'inherit' },
-  );
-
-  dev.on('error', (error) => {
-    console.error(`${label} could not start.\n\n${error.message}`);
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  try {
+    if (process.env.FREETV_SKIP_PORT_PREFLIGHT !== '1') {
+      await assertDevelopmentPortAvailable({ label, port });
+    }
+  } catch (error) {
+    console.error(error.message);
     process.exitCode = 1;
-  });
-  dev.on('exit', (code) => {
-    process.exitCode = code ?? 1;
-  });
+  }
+
+  if (process.exitCode !== 1) {
+    console.log(`${label} starting on port ${port}.`);
+    const dev = spawnAdminVite();
+
+    dev.on('error', (error) => {
+      console.error(`${label} could not start.\n\n${error.message}`);
+      process.exitCode = 1;
+    });
+    dev.on('exit', (code) => {
+      process.exitCode = code ?? 1;
+    });
+  }
 }

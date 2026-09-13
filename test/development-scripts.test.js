@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import {
   assertDevelopmentPortAvailable,
   DEVELOPMENT_PRODUCTS,
+  resolveAdminApiProxyTarget,
 } from '../scripts/lib/development.js';
+import { spawnAdminVite } from '../scripts/dev-admin.js';
 
 const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'package.json'), 'utf8'));
@@ -58,6 +60,80 @@ test('development ports and Vite strict-port behavior are explicit', () => {
   assert.match(read('scripts/dev-admin.js'), /'--strictPort'/u);
   assert.match(read('scripts/dev-admin.js'), /process\.env\.ADMIN_PORT/u);
   assert.doesNotMatch(read('scripts/dev-php.js'), /strictPort/u);
+});
+
+test('Admin API proxy target follows the configured PHP development port', () => {
+  assert.equal(
+    resolveAdminApiProxyTarget({ environment: {}, configuredPhpPort: config.dev.phpPort }),
+    'http://localhost:8081',
+  );
+  assert.equal(
+    resolveAdminApiProxyTarget({ environment: {}, configuredPhpPort: 9123 }),
+    'http://localhost:9123',
+  );
+  assert.equal(
+    resolveAdminApiProxyTarget({ environment: { PHP_PORT: '8123' }, configuredPhpPort: 9123 }),
+    'http://localhost:8123',
+  );
+});
+
+test('explicit Admin API proxy targets are preserved and blank targets are generated', () => {
+  const explicitTarget = '  https://api.example.test/custom  ';
+  assert.equal(
+    resolveAdminApiProxyTarget({
+      environment: { PHP_PORT: '8123', VITE_API_PROXY_TARGET: explicitTarget },
+      configuredPhpPort: 9123,
+    }),
+    explicitTarget,
+  );
+  assert.equal(
+    resolveAdminApiProxyTarget({
+      environment: { VITE_API_PROXY_TARGET: '  \t' },
+      configuredPhpPort: 9123,
+    }),
+    'http://localhost:9123',
+  );
+  assert.equal(
+    resolveAdminApiProxyTarget({
+      environment: { VITE_API_PROXY_TARGET: '' },
+      configuredPhpPort: 9123,
+    }),
+    'http://localhost:9123',
+  );
+});
+
+test('Admin API proxy target retains PHP development port validation', () => {
+  assert.throws(
+    () => resolveAdminApiProxyTarget({
+      environment: { PHP_PORT: 'invalid' },
+      configuredPhpPort: config.dev.phpPort,
+    }),
+    { message: 'PHP API Server has an invalid configured port: invalid' },
+  );
+});
+
+test('dev:admin passes the resolved API proxy target to the spawned Vite process', () => {
+  let invocation;
+  const child = {};
+  const result = spawnAdminVite({
+    environment: { PHP_PORT: '8123', EXISTING_VARIABLE: 'preserved' },
+    configuredPhpPort: config.dev.phpPort,
+    adminDirectory: '/admin',
+    adminPort: 5174,
+    spawnProcess(command, args, options) {
+      invocation = { command, args, options };
+      return child;
+    },
+  });
+
+  assert.equal(result, child);
+  assert.equal(invocation.command, 'npm');
+  assert.deepEqual(
+    invocation.args,
+    ['run', 'dev', '--', '--host', '0.0.0.0', '--port', '5174', '--strictPort'],
+  );
+  assert.equal(invocation.options.env.EXISTING_VARIABLE, 'preserved');
+  assert.equal(invocation.options.env.VITE_API_PROXY_TARGET, 'http://localhost:8123');
 });
 
 test('occupied ports produce the product-specific troubleshooting message', async (t) => {

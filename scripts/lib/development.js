@@ -14,6 +14,19 @@ export function resolveDevelopmentPort(value, label) {
   return port;
 }
 
+export function resolveAdminApiProxyTarget({ environment, configuredPhpPort }) {
+  const explicitTarget = environment.VITE_API_PROXY_TARGET;
+  if (typeof explicitTarget === 'string' && explicitTarget.trim() !== '') {
+    return explicitTarget;
+  }
+
+  const phpPort = resolveDevelopmentPort(
+    environment.PHP_PORT || configuredPhpPort,
+    DEVELOPMENT_PRODUCTS.php,
+  );
+  return `http://localhost:${phpPort}`;
+}
+
 function portUnavailableError(label, port) {
   return new Error(
     `${label} could not start.\n\nPort ${port} is already in use.\n`

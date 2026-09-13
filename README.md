@@ -70,7 +70,9 @@ freetv-tooling/
 freetv-viewer/
 ```
 
-Different locations can be configured later in `config/paths.json`.
+Different locations can be configured in `config/paths.json`.
+
+The sibling `production/` directory will be generated later if/when Tooling assembles a production build; it does not need to exist during setup.
 
 Install the dependencies for each application:
 
@@ -156,7 +158,10 @@ For example:
 PHP_PORT=8082 npm run dev:all
 ```
 
-This changes the PHP backend port for that command without modifying `config/paths.json`.
+This changes the PHP backend port for that command without modifying `config/paths.json`,
+and the Admin Dashboard API proxy automatically uses the same port. An explicit,
+non-blank `VITE_API_PROXY_TARGET` is passed through unchanged; empty or whitespace-only
+values are treated as unset and replaced with the generated localhost target.
 
 ## Scripts
 
