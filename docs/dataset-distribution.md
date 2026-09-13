@@ -155,3 +155,101 @@ A snapshot represents the Admin environment during a capture window. Its manifes
 Keep the downloaded ZIP unchanged. Tooling validates its directory name, timestamps, contents, counts, sizes, and SHA-256 metadata before accepting it.
 
 Treat snapshots as private operational artifacts. Although authentication tables and credentials are excluded, snapshots contain the complete playlist/show records and thumbnail collection from the captured Admin environment.
+
+## Comparing a Snapshot
+
+Use `content:compare` to compare a captured Data Snapshot with the canonical dataset in the configured local `freetv-data` repository.
+
+The comparison is read-only. It does not modify the snapshot, `freetv-data`, MariaDB, thumbnails, or any Git repository.
+
+From `freetv-tooling`, run:
+
+```bash
+npm run content:compare -- <snapshot-directory-or-zip>
+```
+
+For example:
+
+```bash
+npm run content:compare -- /path/to/freetv-content-snapshot-20260828T192021Z.zip
+```
+
+The command accepts either:
+
+* the downloaded snapshot ZIP; or
+* the unmodified top-level snapshot directory extracted from that ZIP.
+
+Comparing a ZIP requires the `unzip` command to be available on the system path.
+
+Tooling resolves the canonical dataset through `repos.data` in `config/paths.json`. It validates both inputs before comparing them, including the snapshot structure, timestamps, counts, file sizes, SHA-256 digests, and safe-path rules.
+
+### Comparison Identity
+
+The comparison uses stable content identifiers rather than MariaDB row IDs:
+
+| Content   | Logical identity                                   |
+| --------- | -------------------------------------------------- |
+| Playlist  | Playlist filename                                  |
+| Show      | Playlist filename plus Internet Archive identifier |
+| Thumbnail | Thumbnail filename                                 |
+
+Database-only numeric IDs, foreign-key IDs, and record timestamps are not treated as canonical content identity.
+
+### Compared Fields
+
+For playlists, Tooling compares:
+
+* `dbtitle`
+* `dbversion`
+* `author`
+* `email`
+* `link`
+* default-playlist status
+* playlist order
+
+Legacy `lastupdated` values are excluded because they represent publication and provenance state rather than canonical dataset content.
+
+For shows, Tooling compares:
+
+* category
+* active or disabled status
+* title
+* description
+* start year
+* end year
+* IMDb ID
+* group name
+
+A show’s order within a playlist is excluded from canonical equality because `playlist_shows.sort_order` is treated as legacy storage/bootstrap state.
+
+Thumbnails are compared by filename and complete-file SHA-256 digest.
+
+### Reading the Report
+
+For playlists, shows, and thumbnails, the report groups differences into:
+
+| Result          | Meaning                                                                              |
+| --------------- | ------------------------------------------------------------------------------------ |
+| Production only | Present in the captured Admin snapshot but absent from local `freetv-data`.          |
+| Local only      | Present in local `freetv-data` but absent from the captured Admin snapshot.          |
+| Changed         | The same logical item exists in both places, but one or more compared fields differ. |
+
+The report includes:
+
+* aggregate counts for each difference category;
+* counts grouped by changed field;
+* counts of records differing by only one field; and
+* detailed production and local values for each changed record.
+
+If the declared counts in the local `freetv-data/manifest.json` do not match its actual files and records, the report includes metadata warnings.
+
+When no content differs, the report ends with:
+
+```text
+No content differences found.
+```
+
+> [!IMPORTANT]
+> Differences are findings for operator review, not command failures. `content:compare` can exit successfully while reporting production-only, local-only, or changed content. A nonzero exit indicates that the command arguments or one of the inputs could not be safely read or validated.
+
+Review every unexpected difference before continuing. This comparison does not decide which side is correct and does not reconcile either side automatically.
