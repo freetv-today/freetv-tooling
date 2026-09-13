@@ -59,18 +59,53 @@ Run `composer install` in `freetv-server` to install the PHP runtime dependencie
 
 FreeTV Tooling does not install MariaDB, create database accounts, initialize the Admin database, or install sibling-repository dependencies automatically.
 
-## Repository layout
+## Getting Started
 
-Expected directory structure:
+Clone or download the four FreeTV repositories into the same parent directory. The default configuration expects this workspace layout:
 
 ```text
 freetv-data/
 freetv-server/
 freetv-tooling/
 freetv-viewer/
+````
+
+Different locations can be configured later in `config/paths.json`.
+
+Install the dependencies for each application:
+
+1. Navigate to `freetv-tooling` and run `npm install`.
+2. Navigate to `freetv-server` and run `npm install`.
+3. From the same `freetv-server` directory, run `composer install`.
+4. Navigate to `freetv-viewer` and run `npm install`.
+
+Configure MariaDB and the PHP runtime by following the [`freetv-server` Getting Started guide](https://github.com/freetv-today/freetv-server#getting-started).
+
+Return to `freetv-tooling` and verify that the configured repositories are available:
+
+```bash
+npm run status
 ```
 
-The exact paths are controlled by `config/paths.json`.
+Install a disposable copy of the current `freetv-data` Viewer artifacts:
+
+```bash
+npm run dev:install-viewer-data
+```
+
+Start the Viewer, Admin Dashboard, and PHP backend together:
+
+```bash
+npm run dev:all
+```
+
+The default development ports are:
+
+* FreeTV Viewer: `5173`
+* FreeTV Admin Dashboard: `5174`
+* PHP backend: `8081`
+
+The startup output displays the active ports and application URLs. Keep the command running while developing. Press `Ctrl+C` to stop the coordinated development environment.
 
 ## Configuration
 
