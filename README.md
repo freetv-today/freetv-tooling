@@ -16,7 +16,7 @@ For help choosing the appropriate repository, see the [FreeTV organization overv
 
 - Coordinate the Admin Dashboard, Viewer, PHP backend, and Data repositories
 - Run the complete FreeTV development environment from one command
-- Configure repository paths, development ports, base paths, and production output
+- Configure repository paths, development ports, staging paths, and production output
 - Install and reset disposable Viewer development data
 - Build the Viewer and Admin Dashboard independently or together
 - Stage validated Admin-published data and thumbnails
@@ -116,7 +116,47 @@ The startup output displays the active ports and application URLs. Keep the comm
 
 ## Configuration
 
-`config/paths.json` defines the local workspace layout, dev ports, and production output paths.
+`config/paths.json` defines the repository locations, Tooling-owned staging directories, production output, and development ports. Paths are resolved relative to the `freetv-tooling` directory unless described otherwise.
+
+### Path Settings
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `repos.data` | `../freetv-data` | Location of the FreeTV Data repository. |
+| `repos.server` | `../freetv-server` | Location of the FreeTV Admin Dashboard repository. |
+| `repos.viewer` | `../freetv-viewer` | Location of the FreeTV Viewer repository. |
+| `staging.root` | `staging` | Tooling-owned temporary staging directory. It must remain within `freetv-tooling/staging/`. |
+| `staging.data` | `data` | Data-artifact staging directory beneath `staging.root`. |
+| `staging.thumbnails` | `thumbnails` | Thumbnail staging directory beneath `staging.root`. |
+| `output.root` | `../production` | Destination for the assembled production build. It must remain within the Tooling-owned `production/` boundary beside the repositories. |
+
+The data and thumbnail staging directories must remain separate and may not overlap. Tooling validates staging and output paths before replacing their contents.
+
+### Development Ports
+
+| Setting | Default | Process |
+| --- | --- | --- |
+| `dev.viewerPort` | `5173` | FreeTV Viewer Vite development server |
+| `dev.serverPort` | `5174` | FreeTV Admin Dashboard Vite development server |
+| `dev.phpPort` | `8081` | PHP API development server |
+
+Ports must be integers from `1` through `65535`. The three coordinated development processes must use different available ports.
+
+The configured ports can be overridden temporarily through environment variables:
+
+| Environment variable | Overrides |
+| --- | --- |
+| `VIEWER_PORT` | `dev.viewerPort` |
+| `ADMIN_PORT` | `dev.serverPort` |
+| `PHP_PORT` | `dev.phpPort` |
+
+For example:
+
+```bash
+PHP_PORT=8082 npm run dev:all
+```
+
+This changes the PHP backend port for that command without modifying `config/paths.json`.
 
 ### Important settings
 
