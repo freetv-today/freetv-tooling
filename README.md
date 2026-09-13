@@ -135,7 +135,7 @@ Use this table to find the appropriate Tooling workflow. Each FreeTV repository 
 | Build only the Admin Dashboard | Run `npm run build:admin`. | Tooling creates the Admin Dashboard production frontend build in the `freetv-server` repository. |
 | Find unused thumbnails | Run `npm run clean:thumbs`. | Tooling performs a dry run and reports thumbnails that are not referenced by the current Admin data. |
 | Remove unused thumbnails | Review the dry-run results, then run `npm run clean:thumbs -- --apply`. | Tooling removes the reported unused thumbnails through the Admin thumbnail-cleanup utility. |
-| Build the complete production application | Run `npm run build:all`. | Tooling builds both frontends, stages published Viewer data and thumbnails, assembles the production directory, and independently verifies the result. Nothing is uploaded or deployed automatically. |
+| Build the complete production application | Run `npm run build:all`. | Tooling builds both frontends, exports and stages the current Viewer data and thumbnails, assembles the production directory, and independently verifies the result. Nothing is uploaded or deployed automatically. |
 | Verify an existing production assembly | Run `npm run verify`. | Tooling independently checks the already-assembled output against the production package contract. |
 
 ## Configuration
@@ -187,46 +187,55 @@ values are treated as unset and replaced with the generated localhost target.
 
 ## Scripts
 
+The [`How do I...?`](#how-do-i---) table covers the most common workflows. This section provides a concise command reference, including the lower-level commands used by the production pipeline.
+
 ### Development
 
-- `npm run dev:install-viewer-data` — resets the Viewer's disposable public data to the configured `freetv-data` snapshot.
-- `npm run dev:clean-viewer-data` — removes the disposable Viewer public data without touching other public assets.
-- `npm run dev:viewer` — starts FreeTV Viewer.
-- `npm run dev:admin` — starts FreeTV Admin Dashboard.
-- `npm run dev:php` — starts the PHP API Server from the `freetv-server/public/` directory.
-- `npm run dev:all` — starts all three development processes.
+| Command | Purpose |
+| --- | --- |
+| `npm run dev:install-viewer-data` | Reset the Viewer's disposable development data from the configured `freetv-data` repository. |
+| `npm run dev:clean-viewer-data` | Remove the disposable Viewer `config.json`, playlists, and thumbnails without affecting unrelated public assets. |
+| `npm run dev:viewer` | Start the Viewer Vite development server. |
+| `npm run dev:admin` | Start the Admin Dashboard Vite development server with its PHP API proxy configured. |
+| `npm run dev:php` | Start the PHP API development server from `freetv-server/public/`. |
+| `npm run dev:all` | Start and coordinate the Viewer, Admin Dashboard, and PHP backend. |
 
-### Build
+### Production Assembly
 
-- `npm run build:viewer` — builds FreeTV Viewer.
-- `npm run build:admin` — builds FreeTV Admin Dashboard.
-- `npm run stage:exports` / `npm run build:data` — stages validated Server Data and Thumbnail exports.
-- `npm run assemble` — creates and validates the full local production package.
-- `npm run test:assembly` — runs focused production assembler contract tests.
-- `npm run verify` — independently verifies an already-assembled local production package.
-- `npm run build:all` — builds and verifies the complete local production package.
+| Command | Purpose |
+| --- | --- |
+| `npm run build:viewer` | Run the Viewer production frontend build. |
+| `npm run build:admin` | Run the Admin Dashboard production frontend build. |
+| `npm run stage:exports` | Export current Viewer data and thumbnails from `freetv-server`, validate their manifests and contents, and place them in Tooling-owned staging directories. |
+| `npm run build:data` | Alias for `npm run stage:exports`. |
+| `npm run assemble` | Replace the configured production output with an assembled package created from the validated frontend builds, staged exports, PHP API, Composer runtime, and First Run resources. |
+| `npm run verify` | Independently verify an existing production assembly. |
+| `npm run build:all` | Run the complete production build, staging, assembly, and verification workflow. |
 
-`build:all` is the authoritative local production workflow and runs, in order:
+`npm run build:all` runs these phases in order:
 
-1. FreeTV Viewer production build
-2. FreeTV Admin Dashboard production build
-3. Server Data and Thumbnail export staging
-4. Local production assembly
-5. Independent production verification
+1. Build the FreeTV Viewer.
+2. Build the FreeTV Admin Dashboard.
+3. Export, validate, and stage Viewer data and thumbnails.
+4. Assemble the local production package.
+5. Independently verify the assembled package.
 
-The pipeline stops at the first failed stage. Its output is local only: no FTP,
-Hostinger access, or deployment occurs. It does not create or copy `.env`;
-deployment and secret provisioning remain separate sysadmin steps.
+The pipeline stops when a phase fails. After all phases succeed, Tooling reports the configured local output directory.
 
-### Utility
+No command in this workflow commits changes, creates a GitHub release, uploads files, provisions `.env`, or deploys the application.
 
-- `npm run status` — confirms that the expected sibling repos exist and shows the output path.
-- `npm run content:compare -- <snapshot-directory-or-zip>` — prints a read-only production-to-canonical reconciliation report with aggregate changed-field diagnostics.
+### Maintenance and Testing
 
-Playlist comparison intentionally excludes legacy `lastupdated` values because they represent
-publication/provenance state rather than canonical dataset content.
-Playlist `sort_order` remains canonical, while legacy `playlist_shows.sort_order` is excluded
-from canonical show equality.
+| Command | Purpose |
+| --- | --- |
+| `npm run status` | Show the resolved repository and production-output locations and report whether the expected repositories exist. |
+| `npm run clean:thumbs` | Perform a dry run that reports unused Admin thumbnails. |
+| `npm run clean:thumbs -- --apply` | Remove thumbnails identified as unused by the Admin thumbnail-cleanup utility. |
+| `npm run test:assembly` | Run the focused production-assembly contract tests. |
+| `npm run test:verification` | Run the focused production-verification contract tests. |
+| `npm test` | Run the complete Tooling test suite. |
+
+Advanced canonical-dataset publication and First Run release-package commands are intentionally documented separately from the normal development and production-assembly workflows.
 
 ## Production output
 
