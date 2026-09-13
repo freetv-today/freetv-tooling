@@ -237,19 +237,26 @@ No command in this workflow commits changes, creates a GitHub release, uploads f
 
 Advanced canonical-dataset publication and First Run release-package commands are intentionally documented separately from the normal development and production-assembly workflows.
 
-## Production output
+## Production Output
 
-The assembled output is written to `output.root` as a full local deployment package:
+The assembled application is written to the directory configured by `output.root`. With the default configuration, Tooling generates the sibling `production/` directory:
 
 ```text
 production/
 ├── composer.json
 ├── composer.lock
+├── resources/
+│   ├── bootstrap/
+│   │   └── fresh.json
+│   └── freetv-baseline-sample-data.zip
+├── sql/
+│   └── freetv_mariadb_schema-tables-only.sql
 ├── vendor/
 ├── temp/
 │   ├── publication-undo/
 │   └── thumbnail-undo/
 └── public/
+    ├── .htaccess
     ├── index.html
     ├── assets/
     ├── manifest.json
@@ -261,7 +268,20 @@ production/
     └── thumbs/
 ```
 
-The package deliberately contains no `.env`; deployment operators provision it separately.
+The package combines:
+
+* the FreeTV Viewer production build;
+* the FreeTV Admin Dashboard production build;
+* the PHP API and Composer runtime;
+* the current exported Viewer data and thumbnails;
+* the database schema and bundled resources required by First Run; and
+* empty runtime directories used by Publish and thumbnail undo operations.
+
+Assembly replaces the configured output directory after validating its required inputs. Keep unrelated files outside this Tooling-owned directory.
+
+The production package deliberately contains no `.env`. Deployment operators must provide the PHP runtime configuration and credentials separately.
+
+A successful build produces a verified local deployment package. Tooling does not upload or deploy it.
 
 ## Development workflow
 
