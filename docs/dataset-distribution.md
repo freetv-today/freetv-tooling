@@ -55,7 +55,6 @@ The Admin environment used for dataset generation must also have:
 
 - working MariaDB configuration;
 - the current FreeTV database schema;
-- readable Viewer data;
 - readable thumbnails;
 - PHP CLI and the PHP extensions required by `freetv-server`; and
 - sufficient database privileges to generate and restore the SQL packages used by the validation gate.
@@ -65,7 +64,7 @@ Run the Tooling test suite and confirm the configured repository paths before be
 ```bash
 npm test
 npm run status
-````
+```
 
 ## Enabling Data Snapshot
 
@@ -82,3 +81,77 @@ The value must be exactly `true`. Other values leave the navigation item hidden.
 After changing a Vite environment variable, restart the Admin development server or rebuild the Admin production frontend.
 
 The flag controls whether the Data Snapshot navigation item is displayed; it is not the authorization boundary. The snapshot API independently requires an authenticated user with the `admin` role.
+
+## Creating a Data Snapshot
+
+A Data Snapshot captures the Admin environment that will be reconciled with the canonical `freetv-data` repository.
+
+The snapshot contains:
+
+- rows from the `playlists` table;
+- rows from the `playlist_shows` table;
+- the current `tt*.jpg` thumbnail files;
+- file sizes and SHA-256 digests; and
+- capture timestamps and record counts.
+
+It does not contain Admin users, login credentials, sessions, problem reports, or other unrelated database tables.
+
+### Create and Download the Snapshot
+
+1. Enable Data Snapshot and start or rebuild the Admin Dashboard.
+2. Log in with an account that has the `admin` role.
+3. Open **Data Snapshot** from the Admin Dashboard navigation.
+4. Select **Create Snapshot**.
+5. Review the reported playlist, show, and thumbnail counts.
+6. Select **Download Snapshot** and save the ZIP securely.
+
+The Admin creates both a private server-side snapshot and a downloadable ZIP. With the standard runtime layout, they are stored beneath:
+
+```text
+temp/data-snapshots/
+```
+
+The snapshot uses a UTC timestamp in its name:
+
+```text
+freetv-content-snapshot-YYYYMMDDTHHMMSSZ
+```
+
+The downloaded archive uses the same name with the `.zip` extension.
+
+### Snapshot Contents
+
+A valid snapshot archive has one top-level directory:
+
+```text
+freetv-content-snapshot-YYYYMMDDTHHMMSSZ/
+├── manifest.json
+├── playlists.json
+├── playlist_shows.json
+├── thumbs-manifest.json
+└── thumbs/
+    └── tt*.jpg
+```
+
+The snapshot contract requires:
+
+* `format_version` equal to `1`;
+* canonical UTC capture timestamps;
+* playlist, show, and thumbnail counts that match the captured content;
+* sorted and unique thumbnail paths;
+* lowercase SHA-256 digests and byte sizes for captured files;
+* no missing or unexpected archive entries; and
+* no unsafe paths or symbolic links.
+
+The ZIP is verified before the Admin makes it available for download.
+
+> [!NOTE]
+> The Data Snapshot status page provides a quick comparison between the recorded official dataset and current production playlist/show counts. That status view does not detect deleted shows or thumbnail changes. Use the Tooling CLI comparison for the complete reconciliation report.
+
+### Snapshot Handling
+
+A snapshot represents the Admin environment during a capture window. Its manifest records both when capture began and when it completed.
+
+Keep the downloaded ZIP unchanged. Tooling validates its directory name, timestamps, contents, counts, sizes, and SHA-256 metadata before accepting it.
+
+Treat snapshots as private operational artifacts. Although authentication tables and credentials are excluded, snapshots contain the complete playlist/show records and thumbnail collection from the captured Admin environment.
