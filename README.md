@@ -289,7 +289,7 @@ The Viewer requires static JSON and thumbnail artifacts but does not require a l
 
 ```bash
 npm run dev:install-viewer-data
-````
+```
 
 This command resets these paths in `freetv-viewer/public/`:
 
@@ -308,42 +308,43 @@ Remove the installed development data when it is no longer needed:
 ```bash
 npm run dev:clean-viewer-data
 ```
+This cleanup affects only the three disposable paths listed above. Other files in `freetv-viewer/public/` are preserved.
 
 ## Troubleshooting
 
-The Tooling-managed development ports are `5173` for FreeTV Viewer, `5174` for
-FreeTV Admin Dashboard, and `8081` for the PHP API Server. Startup stops with a
-clear error instead of selecting another port when one is occupied.
-The availability check is a startup diagnostic rather than a port lock; Vite's
-strict-port mode remains the final guard if another process claims a port during startup.
+### Development Port Already in Use
+
+Tooling uses these ports by default:
+
+| Process | Default port |
+| --- | --- |
+| FreeTV Viewer | `5173` |
+| FreeTV Admin Dashboard | `5174` |
+| PHP API Server | `8081` |
+
+Tooling stops with an error when a configured port is occupied instead of silently selecting another port. Vite strict-port mode provides a final check if another process claims a frontend port during startup.
 
 On Linux or macOS, identify the process using a port with:
 
 ```bash
 lsof -i :5174
+````
+
+Terminate a stale FreeTV development process normally:
+
+```bash
+kill <PID>
 ```
 
-Terminate a stale FreeTV development process with `kill <PID>`. Use `kill -9 <PID>`
-only if a normal termination fails.
+Use `kill -9 <PID>` only if normal termination fails.
 
-On Windows, use:
+On Windows, identify and terminate the process with:
 
 ```text
 netstat -ano | findstr :5174
 taskkill /PID <PID>
 ```
 
-Use `taskkill /PID <PID> /F` only if the normal command fails. Substitute `5173`
-or `8081` when checking the Viewer or PHP API port. If the port belongs to a
-legitimate unrelated service, do not terminate it; change the corresponding
-development port in `config/paths.json` instead.
+Use `taskkill /PID <PID> /F` only if normal termination fails.
 
-## Future direction
-
-This tooling is designed to grow into:
-
-- unit testing for each repo,
-- Git/GitHub CLI integration,
-- staging and production deploy branches,
-- Dockerized development,
-- and future moderation / content ingestion workflows.
+Substitute `5173` or `8081` when checking the Viewer or PHP API port. If the port belongs to a legitimate unrelated service, do not terminate it. Change the corresponding port in `config/paths.json` or use the temporary environment-variable override documented under [Development Ports](#development-ports).
