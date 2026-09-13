@@ -360,3 +360,129 @@ A cleanup failure also makes the validation fail. Review any retained temporary 
 * deploy FreeTV.
 
 The separately captured snapshot establishes the production state being reconciled. The validation gate establishes that fresh artifacts generated from the current local Admin environment satisfy the dataset publication contract.
+
+## Publishing the Canonical Dataset
+
+After reviewing the snapshot comparison and receiving a `GO` result from dataset validation, publish the current local Admin data to the configured `freetv-data` repository.
+
+From `freetv-tooling`, run:
+
+```bash
+npm run data:publish -- --snapshot=<PATH>
+```
+
+For example:
+
+```bash
+npm run data:publish -- --snapshot=/path/to/freetv-content-snapshot-20260828T192021Z.zip
+```
+
+The command requires exactly one `--snapshot=<PATH>` argument. The path may identify either a valid snapshot ZIP or its unmodified top-level snapshot directory.
+
+Do not store the reconciliation snapshot inside `freetv-data`. Tooling rejects snapshots that overlap the canonical dataset repository.
+
+> [!IMPORTANT]
+> Supplying a snapshot records which production capture the operator reconciled before publication. `data:publish` validates the snapshot but does not rerun `content:compare` or require the snapshot and generated dataset to be identical. Reviewing and resolving the comparison report remains an operator responsibility.
+
+### Publication Process
+
+`data:publish` performs these operations:
+
+1. Validate and load the supplied Data Snapshot.
+2. Run the mandatory dataset validation gate again.
+3. Generate a fresh set of Viewer exports, thumbnails, and SQL packages from the configured local Admin environment.
+4. Build a complete publication candidate in Tooling-owned temporary staging.
+5. Record the supplied snapshot name and capture timestamp as publication provenance.
+6. Validate the candidate’s exact files, manifests, logical counts, byte sizes, and SHA-256 digests.
+7. Prepare a publication transaction inside the local `freetv-data` repository.
+8. Back up the existing managed paths within that temporary transaction.
+9. Promote the new managed paths into `freetv-data`.
+10. Remove the temporary transaction and validation staging after success.
+
+The validation gate is rerun even if `npm run data:validate` was run separately. The standalone command provides an explicit checkpoint for operator review; the internal gate prevents publication from proceeding without a current successful validation.
+
+Avoid changing the Admin database or thumbnail directory while publication is running.
+
+### Managed Canonical Paths
+
+Publication replaces only these managed paths in `freetv-data`:
+
+```text
+config.json
+playlists/
+thumbs/
+freetv_mariadb_schema-create-db.sql
+freetv_mariadb_schema-tables-only.sql
+freetv_mariadb_full-create-db.sql
+freetv_mariadb_full_data-tables-only.sql
+freetv_mariadb_sample-create-db.sql
+freetv_mariadb_sample_data-tables-only.sql
+manifest.json
+```
+
+Other files in the repository, including its README, license, and Git metadata, are not part of the publication transaction.
+
+The publication candidate must contain the exact managed file set. Missing, duplicate, unexpected, unsafe, or symbolic-link entries cause publication to fail.
+
+### Publication Manifest
+
+The generated `freetv-data/manifest.json` records:
+
+* publication format version;
+* dataset generation timestamp;
+* reconciled snapshot name;
+* reconciled snapshot capture timestamp;
+* playlist count;
+* complete show count;
+* sample show count; and
+* thumbnail count.
+
+The snapshot information is provenance: it identifies the production capture reviewed by the operator before publication. The published Viewer and SQL artifacts are generated from the current local Admin environment, not copied from the snapshot.
+
+### Local Transaction and Rollback
+
+Tooling performs promotion through a temporary directory named like:
+
+```text
+.freetv-publication-<transaction-id>
+```
+
+This directory is created inside `freetv-data` and contains prepared replacements and temporary backups of the previous managed paths.
+
+If promotion fails and rollback succeeds, Tooling restores the previous managed content and removes the transaction directory.
+
+If rollback is incomplete, Tooling retains the transaction directory and reports its location. Stop and inspect that recovery state before making changes or running publication again.
+
+Tooling refuses to start a new publication while an unresolved `.freetv-publication-*` directory exists in `freetv-data`.
+
+If all managed paths were promoted but transaction or staging cleanup fails, the dataset may already have been updated even though the command exits with an error. Read the complete error message and inspect both `freetv-data` and the reported temporary path before retrying.
+
+> [!CAUTION]
+> The successful transaction backup is temporary and is deleted after publication. Review the resulting Git diff before committing. Git history or a separate operator backup remains the durable recovery mechanism after a successful publication.
+
+### Successful Publication
+
+A successful run reports:
+
+```text
+Dataset published locally to freetv-data
+```
+
+The result includes playlist, complete-show, sample-show, thumbnail, and thumbnail-byte counts and reports the updated local repository path.
+
+After publication:
+
+1. Review the complete `freetv-data` Git diff.
+2. Confirm that only the expected managed paths changed.
+3. Run any desired repository checks.
+4. Commit and push the changes manually when satisfied.
+
+Publication does not:
+
+* commit or push the `freetv-data` changes;
+* create a GitHub release;
+* build the Current Sample or Current Official release ZIPs;
+* upload files;
+* update dataset-package metadata; or
+* deploy FreeTV.
+
