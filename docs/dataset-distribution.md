@@ -623,3 +623,103 @@ After the build:
 * update a remote server; or
 * deploy FreeTV.
 
+## Distributing Dataset Packages
+
+After building and validating the release packages, publish them to an HTTPS-accessible location and configure a dataset-package metadata endpoint.
+
+Distribution is a manual operator workflow. Tooling does not upload packages, update metadata, or deploy the endpoint.
+
+### Calculate Complete-Archive Digests
+
+Calculate the SHA-256 digest of each completed ZIP after its final contents have been generated:
+
+```bash
+sha256sum /path/to/freetv-sample-data.zip
+sha256sum /path/to/freetv-official-data.zip
+```
+
+Record the lowercase 64-character digest reported for each archive.
+
+These complete-archive digests are different from the file digests stored inside each package’s `manifest.json`. First Run verifies the downloaded ZIP against the complete-archive digest before extracting and validating its internal manifest.
+
+Do not modify or regenerate a ZIP after calculating its digest. Any change to the archive requires calculating and publishing a new digest.
+
+### Upload the Packages
+
+Upload both ZIPs to their final distribution location:
+
+```text
+freetv-sample-data.zip
+freetv-official-data.zip
+```
+
+Each package must be available through a valid HTTPS URL without embedded credentials. Redirects are permitted only when they remain on HTTPS.
+
+Confirm that both final URLs return the complete archives successfully before updating the metadata endpoint.
+
+### Configure the Metadata Endpoint
+
+The FreeTV Admin Dashboard provides this metadata endpoint:
+
+```text
+/api/admin/dataset-package-metadata.php
+```
+
+On the environment serving that endpoint, configure these PHP runtime values:
+
+```dotenv
+FREETV_SAMPLE_DATA_URL=https://example.com/releases/freetv-sample-data.zip
+FREETV_SAMPLE_DATA_SHA256=<64-character-lowercase-sha256>
+FREETV_OFFICIAL_DATA_URL=https://example.com/releases/freetv-official-data.zip
+FREETV_OFFICIAL_DATA_SHA256=<64-character-lowercase-sha256>
+```
+
+The URL values identify the final hosted packages. The SHA-256 values must cover the complete ZIP archives.
+
+All four values are required for the endpoint to return package metadata successfully. The URLs must:
+
+* use HTTPS;
+* include a valid host; and
+* contain no embedded username or password.
+
+The SHA-256 values must contain exactly 64 lowercase hexadecimal characters.
+
+When configured correctly, a `GET` request returns metadata in this form:
+
+```json
+{
+  "format_version": 1,
+  "sample": {
+    "url": "https://example.com/releases/freetv-sample-data.zip",
+    "sha256": "<64-character-lowercase-sha256>"
+  },
+  "official": {
+    "url": "https://example.com/releases/freetv-official-data.zip",
+    "sha256": "<64-character-lowercase-sha256>"
+  }
+}
+```
+
+The endpoint permits only `GET` requests and sends `Cache-Control: no-store`.
+
+If its PHP dependencies or any required runtime value are unavailable or invalid, it returns HTTP `503` with a generic unavailable response. The specific configuration error is written to the PHP error log rather than exposed to the client.
+
+### Select a Metadata Endpoint for First Run
+
+By default, the Admin Dashboard obtains Current Sample Data and Current Official Data metadata from:
+
+```text
+https://freetv.today/api/admin/dataset-package-metadata.php
+```
+
+To test packages from another distribution environment, configure the Admin runtime with:
+
+```dotenv
+FREETV_DATASET_METADATA_URL=https://test.example.com/api/admin/dataset-package-metadata.php
+```
+
+This optional value changes where First Run obtains package URLs and complete-archive SHA-256 digests. It does not directly identify either ZIP.
+
+The metadata endpoint URL must use HTTPS, include a valid host, and contain no embedded credentials. If the value is omitted, FreeTV uses the official `freetv.today` endpoint.
+
+`FREETV_DATASET_METADATA_URL` is intended for dataset distributors, mirror operators, and package testing. It is not required for ordinary Admin Dashboard development or normal Viewer publication.
