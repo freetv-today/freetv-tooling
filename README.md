@@ -19,7 +19,7 @@ For help choosing the appropriate repository, see the [FreeTV organization overv
 - Configure repository paths, development ports, staging paths, and production output
 - Install and reset disposable Viewer development data
 - Build the Viewer and Admin Dashboard independently or together
-- Stage validated Admin-published data and thumbnails
+- Export, validate, and stage current Viewer data and thumbnails
 - Assemble and independently verify a complete production build
 - Detect occupied development ports before starting local services
 - Run repository maintenance and data-validation utilities
