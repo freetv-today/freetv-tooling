@@ -723,3 +723,98 @@ This optional value changes where First Run obtains package URLs and complete-ar
 The metadata endpoint URL must use HTTPS, include a valid host, and contain no embedded credentials. If the value is omitted, FreeTV uses the official `freetv.today` endpoint.
 
 `FREETV_DATASET_METADATA_URL` is intended for dataset distributors, mirror operators, and package testing. It is not required for ordinary Admin Dashboard development or normal Viewer publication.
+
+## Testing First Run Distribution
+
+Test the distributed packages through the Admin Dashboard’s actual First Run workflow before treating them as ready for use.
+
+Current Sample Data and Current Official Data must be tested separately. A successful First Run initializes the installation permanently, so each test requires a separate clean, uninitialized database and matching public-artifact location.
+
+> [!CAUTION]
+> Do not perform these tests against an existing FreeTV installation or a database containing data that must be preserved. Use isolated test environments and databases.
+
+### Configure the Test Installation
+
+In the `.env` file for the Admin installation being tested, set:
+
+```dotenv
+FREETV_DATASET_METADATA_URL=https://test.example.com/api/admin/dataset-package-metadata.php
+```
+
+This is PHP runtime configuration. Restart the PHP process after changing it.
+
+Confirm that the configured metadata endpoint returns HTTP `200` and contains the expected final package URLs and complete-archive SHA-256 digests.
+
+### Test Current Sample Data
+
+Using a clean, uninitialized test installation:
+
+1. Start the PHP backend and Admin frontend.
+2. Open the Admin Dashboard.
+3. Confirm that First Run displays the four initialization modes.
+4. Select **Current Sample Data**.
+5. Enter credentials for the first Administrator account.
+6. Complete initialization.
+7. Confirm that FreeTV returns to the login screen.
+8. Log in with the Administrator account created during First Run.
+9. Review the installed playlists and sampled shows.
+10. Confirm that the matching Viewer configuration, playlist JSON, and available referenced thumbnails were installed in the configured public directory.
+11. Open the **Publish** page and confirm that it reports no unpublished differences.
+
+The test confirms that First Run can:
+
+* retrieve the configured metadata;
+* select the sample package;
+* download the complete ZIP;
+* verify its complete-archive SHA-256 digest;
+* safely extract and validate its internal manifest;
+* install the sample SQL data;
+* install the matching Viewer artifacts;
+* create the first Administrator account; and
+* leave MariaDB and the published Viewer state synchronized.
+
+### Test Current Official Data
+
+Prepare another clean, uninitialized test installation. Do not reuse the installation successfully initialized by the sample-package test.
+
+Repeat the First Run process using **Current Official Data**.
+
+After logging in, confirm that:
+
+* the complete official playlist and show collection is present;
+* the complete canonical thumbnail collection was installed;
+* the Viewer configuration and playlist artifacts are present in the configured public directory; and
+* the **Publish** page reports no unpublished differences.
+
+This test exercises the larger package and confirms that the complete official dataset can be downloaded, verified, installed, and published as the installation’s initial Viewer state.
+
+### Test Failure Handling
+
+Before releasing new packages, intentionally test at least these failure cases in an isolated environment:
+
+| Test                                                       | Expected result                                                                                         |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Metadata endpoint is unavailable                           | First Run reports that the current dataset could not be retrieved and does not complete initialization. |
+| Metadata contains an invalid package URL or SHA-256 value  | First Run rejects the metadata and does not install the package.                                        |
+| Complete-archive SHA-256 does not match the downloaded ZIP | First Run reports a verification failure and does not install the package.                              |
+| ZIP contents do not match the internal manifest            | First Run rejects the package and does not complete initialization.                                     |
+| Package download is interrupted or incomplete              | First Run reports a retrieval or verification failure and does not complete initialization.             |
+
+For these failures, confirm that:
+
+* the Administrator account was not created;
+* initialization was not marked complete;
+* the incomplete package was not retained as installed data; and
+* returning to Data Setup allows another initialization option or a later retry.
+
+### Complete the Distribution
+
+After both successful-mode tests and the required failure checks:
+
+1. Confirm the final package files have not changed since their complete-archive digests were calculated.
+2. Confirm the production metadata endpoint contains the final HTTPS URLs and matching digests.
+3. Confirm both production package URLs are reachable.
+4. Remove any temporary metadata override from test installations that should return to the official endpoint.
+5. Retain the release packages, recorded digests, and corresponding `freetv-data` Git revision as release records.
+
+Publishing the packages and metadata makes them available to First Run. It does not update an already initialized FreeTV installation.
