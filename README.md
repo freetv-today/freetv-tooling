@@ -209,7 +209,7 @@ freetv-tooling/
 └── README.md                  Tooling operating documentation
 ```
 
-The staging/ directory is generated as needed, ignored by Git, and may be replaced by Tooling during export staging.
+The `staging/` directory is generated as needed, ignored by Git, and may be replaced by Tooling during export staging.
 
 ## Scripts
 
@@ -378,4 +378,4 @@ Substitute `5173` or `8081` when checking the Viewer or PHP API port. If the por
 
 ## License
 
-FreeTV Tooling is licensed under the [GNU General Public License version 3](LICENSE).
+This code is released under the [GPL v3](LICENSE) license.
