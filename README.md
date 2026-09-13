@@ -132,7 +132,7 @@ Use this table to find the appropriate Tooling workflow. Each FreeTV repository 
 | Remove Viewer development data | Run `npm run dev:clean-viewer-data`. | Tooling removes the disposable Viewer data without deleting unrelated Viewer public assets. |
 | Change a development port | Edit the appropriate `dev` setting in `config/paths.json`, or use `VIEWER_PORT`, `ADMIN_PORT`, or `PHP_PORT` for a temporary override. | Tooling validates the selected ports before starting the development processes. The Admin API proxy automatically follows the Tooling-managed PHP port unless `VITE_API_PROXY_TARGET` is explicitly set. |
 | Build only the Viewer | Run `npm run build:viewer`. | Tooling creates the Viewer production frontend build in the Viewer repository. |
-| Build only the Admin Dashboard | Run `npm run build:admin`. | Tooling creates the Admin Dashboard production frontend build in the Admin repository. |
+| Build only the Admin Dashboard | Run `npm run build:admin`. | Tooling creates the Admin Dashboard production frontend build in the `freetv-server` repository. |
 | Find unused thumbnails | Run `npm run clean:thumbs`. | Tooling performs a dry run and reports thumbnails that are not referenced by the current Admin data. |
 | Remove unused thumbnails | Review the dry-run results, then run `npm run clean:thumbs -- --apply`. | Tooling removes the reported unused thumbnails through the Admin thumbnail-cleanup utility. |
 | Build the complete production application | Run `npm run build:all`. | Tooling builds both frontends, stages published Viewer data and thumbnails, assembles the production directory, and independently verifies the result. Nothing is uploaded or deployed automatically. |
