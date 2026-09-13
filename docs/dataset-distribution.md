@@ -804,7 +804,7 @@ For these failures, confirm that:
 
 * the Administrator account was not created;
 * initialization was not marked complete;
-* the incomplete package was not retained as installed data; and
+* the failed package was not installed as active MariaDB or Viewer data; and
 * returning to Data Setup allows another initialization option or a later retry.
 
 ### Complete the Distribution
