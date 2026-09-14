@@ -33,7 +33,7 @@ For help choosing the appropriate repository, see the [FreeTV organization overv
 - npm
 - PHP 8.4.1 or newer
 - Composer
-- MariaDB when running the Admin Dashboard
+- MariaDB when running the Admin Dashboard, staging current Viewer exports, or building a complete production assembly
 - A modern web browser for Viewer and Admin development
 
 The PHP backend also requires the PHP extensions documented in the [`freetv-server` requirements](https://github.com/freetv-today/freetv-server#requirements).
