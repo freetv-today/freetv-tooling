@@ -24,30 +24,6 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.html [L]
 `;
 
-function pngFixture(width, height) {
-  const data = Buffer.alloc(24);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(data);
-  data.writeUInt32BE(13, 8);
-  data.write('IHDR', 12, 'ascii');
-  data.writeUInt32BE(width, 16);
-  data.writeUInt32BE(height, 20);
-  return data;
-}
-
-function viewerManifest() {
-  return {
-    id: '/', name: 'FreeTV Viewer', short_name: 'FreeTV', lang: 'en-US', description: 'FreeTV fixture',
-    start_url: '/', scope: '/', display: 'standalone', display_override: ['standalone', 'minimal-ui'],
-    icons: [
-      { src: '/assets/app-icons/freetv-192x192.png', sizes: '192x192', type: 'image/png' },
-      { src: '/assets/app-icons/freetv-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      {
-        src: '/assets/app-icons/freetv-512x512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable',
-      },
-    ],
-  };
-}
-
 function writeFile(root, relativePath, contents = 'fixture') {
   const target = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -115,7 +91,6 @@ function createFixture(t) {
 
   writeFile(outputRoot, 'public/.htaccess', SPA_HTACCESS);
   writeFile(outputRoot, 'public/index.html', [
-    '<link rel="manifest" href="/manifest.json">',
     '<link rel="stylesheet" href="/assets/viewer.css">',
     '<script src="/assets/viewer.js"></script>',
     '<img src="/assets/icon.png">',
@@ -123,18 +98,10 @@ function createFixture(t) {
   writeFile(outputRoot, 'public/assets/viewer.js', 'const icon = "/assets/icon.png";\n');
   writeFile(outputRoot, 'public/assets/viewer.css', 'body { background: url(/assets/icon.png); }\n');
   writeFile(outputRoot, 'public/assets/icon.png', 'png fixture');
-  writeFile(outputRoot, 'public/assets/app-icons/freetv-192x192.png', pngFixture(192, 192));
-  writeFile(outputRoot, 'public/assets/app-icons/freetv-512x512.png', pngFixture(512, 512));
-  writeFile(outputRoot, 'public/assets/app-icons/freetv-512x512-maskable.png', pngFixture(512, 512));
-  writeFile(outputRoot, 'public/manifest.json', JSON.stringify(viewerManifest()));
-  writeFile(outputRoot, 'public/service-worker.js', [
-    'const STATIC_ASSETS = [',
-    "  '/',",
-    "  '/index.html',",
-    "  '/manifest.json',",
-    "  '/assets/app-icons/freetv-192x192.png',",
-    '];',
-  ].join('\n'));
+  writeFile(outputRoot, 'public/freetv-small.png', 'small logo');
+  writeFile(outputRoot, 'public/freetv.png', 'logo');
+  writeFile(outputRoot, 'public/whitelabel.config.json', JSON.stringify({ smallLogo: '/freetv-small.png' }));
+  writeFile(outputRoot, 'public/service-worker.js', 'self.addEventListener("install", () => self.skipWaiting());\n');
 
   writeFile(outputRoot, 'public/admin/index.html', [
     '<link rel="stylesheet" href="/admin/assets/admin.css">',
@@ -188,7 +155,7 @@ test('valid package passes without modifying it', (t) => {
   const fixture = createFixture(t);
   const before = treeSnapshot(fixture.outputRoot);
   const result = verifyFixture(fixture);
-  assert.equal(result.application.packageFileCount, 27);
+  assert.equal(result.application.packageFileCount, 26);
   assert.equal(result.data.playlistCount, 1);
   assert.equal(result.data.showCount, 1);
   assert.equal(result.thumbnails.fileCount, 1);
@@ -258,12 +225,10 @@ test('Admin root assets reference fails ownership', (t) => {
   assert.throws(() => verifyFixture(fixture), /Admin static reference uses Viewer-owned \/assets/);
 });
 
-test('missing manifest icon fails', (t) => {
+test('missing white-label logo fails', (t) => {
   const fixture = createFixture(t);
-  const manifest = viewerManifest();
-  manifest.icons[0].src = '/assets/app-icons/missing.png';
-  writeFile(fixture.outputRoot, 'public/manifest.json', JSON.stringify(manifest));
-  assert.throws(() => verifyFixture(fixture), /unexpected icon|manifest icon does not resolve|static reference.*missing/);
+  writeFile(fixture.outputRoot, 'public/whitelabel.config.json', JSON.stringify({ smallLogo: '/missing.png' }));
+  assert.throws(() => verifyFixture(fixture), /static reference.*missing/);
 });
 
 test('retired public manifest.webmanifest fails', (t) => {

@@ -302,12 +302,14 @@ test('assembled Thumbnails remain covered by staging hashes and sizes', (t) => {
   );
 });
 
-test('Viewer manifest owns public manifest.json and Admin runtime paths are absent', (t) => {
+test('Viewer white-label assets are assembled and Admin runtime paths are absent', (t) => {
   const fixture = createWorkspace(t);
   assembleProduction(fixture);
-  const manifest = JSON.parse(fs.readFileSync(path.join(fixture.outputRoot, 'public/manifest.json'), 'utf8'));
-  assert.equal(manifest.id, '/');
-  assert.equal('contract_version' in manifest, false);
+  const whiteLabel = JSON.parse(fs.readFileSync(path.join(fixture.outputRoot, 'public/whitelabel.config.json'), 'utf8'));
+  assert.equal(whiteLabel.smallLogo, '/freetv-small.png');
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/freetv-small.png')), true);
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/freetv.png')), true);
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/manifest.json')), false);
   for (const entry of ['api', 'config.json', 'playlists', 'thumbs']) {
     assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/admin', entry)), false);
   }
@@ -327,8 +329,8 @@ test('only declared ownership roots appear in production', (t) => {
     'freetv_mariadb_schema-tables-only.sql',
   ]);
   assert.deepEqual(fs.readdirSync(path.join(fixture.outputRoot, 'public')).sort(), [
-    '.htaccess', 'admin', 'api', 'assets', 'config.json', 'index.html', 'manifest.json',
-    'playlists', 'service-worker.js', 'thumbs',
+    '.htaccess', 'admin', 'api', 'assets', 'config.json', 'freetv-small.png', 'freetv.png', 'index.html',
+    'playlists', 'service-worker.js', 'thumbs', 'whitelabel.config.json',
   ]);
 });
 

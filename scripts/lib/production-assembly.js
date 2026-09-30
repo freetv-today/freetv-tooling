@@ -40,7 +40,7 @@ const FIRST_RUN_RESOURCES_ROOT_ENTRIES = new Set(['bootstrap', 'freetv-baseline-
 const FIRST_RUN_BOOTSTRAP_ENTRIES = new Set(['fresh.json']);
 const FIRST_RUN_SQL_ENTRIES = new Set(['freetv_mariadb_schema-tables-only.sql']);
 const FRONTEND_ASSET_EXTENSIONS = new Set([
-  '.css', '.gif', '.html', '.jpg', '.js', '.nfo', '.png', '.svg', '.ttf',
+  '.css', '.gif', '.html', '.jpg', '.js', '.nfo', '.png', '.svg', '.ttf', '.woff', '.woff2',
 ]);
 const API_ALLOWED_EXTENSIONS = new Set(['.html', '.php']);
 const API_ALLOWED_DIRECTORIES = new Set(['admin', 'admin/publication']);
