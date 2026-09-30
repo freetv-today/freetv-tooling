@@ -236,27 +236,20 @@ function verifyReferenceSet(references, context) {
   return checked;
 }
 
-function verifyManifestReferences(publicRoot) {
-  const manifestPath = path.join(publicRoot, 'manifest.json');
-  const manifest = readJson(manifestPath, 'Production manifest.json');
-  if (!Array.isArray(manifest.icons) || manifest.icons.length === 0) {
-    throw new Error('Production manifest.json must contain an icons array');
+function verifyViewerConfigReferences(publicRoot) {
+  const configPath = path.join(publicRoot, 'whitelabel.config.json');
+  const config = readJson(configPath, 'Viewer whitelabel.config.json');
+  if (!isObject(config) || typeof config.smallLogo !== 'string' || config.smallLogo === '') {
+    throw new Error('Viewer whitelabel.config.json must contain a smallLogo path');
   }
-  let checked = 0;
-  for (const icon of manifest.icons) {
-    if (!isObject(icon) || typeof icon.src !== 'string' || icon.src === '') {
-      throw new Error('Production manifest.json contains an icon without a source');
-    }
-    checked += verifyStaticReference({
-      reference: icon.src,
-      sourcePath: manifestPath,
-      publicRoot,
-      ownershipRoot: publicRoot,
-      namespace: 'Viewer',
-      label: 'manifest.json',
-    });
-  }
-  return checked;
+  return verifyStaticReference({
+    reference: config.smallLogo,
+    sourcePath: configPath,
+    publicRoot,
+    ownershipRoot: publicRoot,
+    namespace: 'Viewer',
+    label: 'whitelabel.config.json',
+  });
 }
 
 function verifyFrontendReferences(publicRoot) {
@@ -271,7 +264,7 @@ function verifyFrontendReferences(publicRoot) {
   viewerReferences += verifyReferenceSet(htmlReferences(fs.readFileSync(viewerIndex, 'utf8')), {
     sourcePath: viewerIndex, publicRoot, ownershipRoot: publicRoot, namespace: 'Viewer', label: 'public/index.html',
   });
-  viewerReferences += verifyManifestReferences(publicRoot);
+  viewerReferences += verifyViewerConfigReferences(publicRoot);
   const serviceWorker = path.join(publicRoot, 'service-worker.js');
   viewerReferences += verifyReferenceSet(serviceWorkerStaticReferences(fs.readFileSync(serviceWorker, 'utf8')), {
     sourcePath: serviceWorker, publicRoot, ownershipRoot: publicRoot, namespace: 'Viewer', label: 'service-worker.js',

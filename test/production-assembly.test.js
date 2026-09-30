@@ -7,50 +7,10 @@ import test from 'node:test';
 import {
   assembleProduction,
   OwnershipRegistry,
+  VIEWER_SPA_HTACCESS,
   validateProductionOutput,
 } from '../scripts/lib/production-assembly.js';
-
-const SPA_HTACCESS = `RewriteEngine On
-RewriteBase /
-
-# Admin Dashboard SPA routes
-RewriteCond %{REQUEST_URI} ^/admin(?:/|$)
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^admin(?:/.*)?$ /admin/index.html [L]
-
-# Never route API requests through the Viewer SPA fallback
-RewriteRule ^api(?:/|$) - [L]
-
-# Viewer SPA routes
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ index.html [L]
-`;
-
-function pngFixture(width, height) {
-  const data = Buffer.alloc(24);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(data);
-  data.writeUInt32BE(13, 8);
-  data.write('IHDR', 12, 'ascii');
-  data.writeUInt32BE(width, 16);
-  data.writeUInt32BE(height, 20);
-  return data;
-}
-
-function viewerManifest() {
-  return {
-    id: '/', name: 'FreeTV Viewer', short_name: 'FreeTV', lang: 'en-US', description: 'FreeTV fixture',
-    start_url: '/', scope: '/', display: 'standalone', display_override: ['standalone', 'minimal-ui'],
-    icons: [
-      { src: '/assets/app-icons/freetv-192x192.png', sizes: '192x192', type: 'image/png' },
-      { src: '/assets/app-icons/freetv-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      {
-        src: '/assets/app-icons/freetv-512x512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable',
-      },
-    ],
-  };
-}
+const SPA_HTACCESS = VIEWER_SPA_HTACCESS;
 
 function sha256(contents) {
   return crypto.createHash('sha256').update(contents).digest('hex');
@@ -111,10 +71,9 @@ function createWorkspace(t) {
   writeFile(viewerRoot, 'dist/index.html', '<!doctype html>');
   writeFile(viewerRoot, 'dist/assets/viewer.js', 'export {};');
   writeFile(viewerRoot, 'dist/assets/viewer.css', 'body {}');
-  writeFile(viewerRoot, 'dist/assets/app-icons/freetv-192x192.png', pngFixture(192, 192));
-  writeFile(viewerRoot, 'dist/assets/app-icons/freetv-512x512.png', pngFixture(512, 512));
-  writeFile(viewerRoot, 'dist/assets/app-icons/freetv-512x512-maskable.png', pngFixture(512, 512));
-  writeFile(viewerRoot, 'dist/manifest.json', JSON.stringify(viewerManifest()));
+  writeFile(viewerRoot, 'dist/freetv-small.png', 'small logo');
+  writeFile(viewerRoot, 'dist/freetv.png', 'logo');
+  writeFile(viewerRoot, 'dist/whitelabel.config.json', '{"smallLogo":"/freetv-small.png"}');
   writeFile(viewerRoot, 'dist/service-worker.js', '/* service worker */');
 
   writeFile(serverRoot, 'dist/index.html', '<!doctype html>');

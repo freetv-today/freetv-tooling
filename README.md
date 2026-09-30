@@ -288,14 +288,18 @@ production/
     ├── .htaccess
     ├── index.html
     ├── assets/
-    ├── manifest.json
+    ├── freetv-small.png
+    ├── freetv.png
     ├── service-worker.js
+    ├── whitelabel.config.json
     ├── admin/
     ├── api/
     ├── config.json
     ├── playlists/
     └── thumbs/
 ```
+
+The Viewer build provides the root `.htaccess`; Tooling validates and copies it into the production package. The Viewer does not ship as a Progressive Web App by default. The root `service-worker.js` is a temporary migration worker for clearing the previous Viewer’s app-shell cache and unregistering its service worker. Remove it after the transition period; a future optional PWA package can provide its own worker and manifest.
 
 The package combines:
 
