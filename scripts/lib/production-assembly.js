@@ -52,6 +52,9 @@ const VENDOR_EXCLUDED_DIRECTORIES = new Set(['.git', 'node_modules', 'test', 'te
 export const VIEWER_SPA_HTACCESS = `RewriteEngine On
 RewriteBase /
 
+# Redirect old /v4/ directory to root
+RewriteRule ^v4/(.*)$ https://freetv.today/ [R=301,L]
+
 # Admin Dashboard SPA routes
 RewriteCond %{REQUEST_URI} ^/admin(?:/|$)
 RewriteCond %{REQUEST_FILENAME} !-f
