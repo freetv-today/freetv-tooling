@@ -1,6 +1,6 @@
 {
 	"name": "freetv-tooling",
-	"version": "1.0.1-beta",
+	"version": "1.0.2-beta",
 	"description": "Tools to manage FreeTV builds, validated exports, and local production assembly.",
 	"author": "Ken Dawson",
 	"license": "GPL-3.0-only",

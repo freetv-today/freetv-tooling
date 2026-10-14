@@ -2,7 +2,7 @@
 
 `freetv-tooling` coordinates development, validation, builds, data workflows, and production assembly across the FreeTV repositories:
 
-- `freetv-server`
+- `freetv-admin`
 - `freetv-viewer`
 - `freetv-data`
 
@@ -36,14 +36,14 @@ For help choosing the appropriate repository, see the [FreeTV organization overv
 - MariaDB when running the Admin Dashboard, staging current Viewer exports, or building a complete production assembly
 - A modern web browser for Viewer and Admin development
 
-The PHP backend also requires the PHP extensions documented in the [`freetv-server` requirements](https://github.com/freetv-today/freetv-server#requirements).
+The PHP backend also requires the PHP extensions documented in the [`freetv-admin` requirements](https://github.com/freetv-today/freetv-admin#requirements).
 
 ### Repository Requirements
 
 The complete Tooling workflow expects local copies of:
 
 - `freetv-tooling`
-- `freetv-server`
+- `freetv-admin`
 - `freetv-viewer`
 - `freetv-data`
 
@@ -52,10 +52,10 @@ Individual commands may require only some of these repositories. For example, `n
 Install npm dependencies separately in:
 
 - `freetv-tooling`
-- `freetv-server`
+- `freetv-admin`
 - `freetv-viewer`
 
-Run `composer install` in `freetv-server` to install the PHP runtime dependencies required by the Admin API and production assembly.
+Run `composer install` in `freetv-admin` to install the PHP runtime dependencies required by the Admin API and production assembly.
 
 FreeTV Tooling does not install MariaDB, create database accounts, initialize the Admin database, or install sibling-repository dependencies automatically.
 
@@ -65,7 +65,7 @@ Clone or download the four FreeTV repositories into the same parent directory. T
 
 ```text
 freetv-data/
-freetv-server/
+freetv-admin/
 freetv-tooling/
 freetv-viewer/
 ```
@@ -77,11 +77,11 @@ The sibling `production/` directory will be generated later when Tooling assembl
 Install the dependencies for each application:
 
 1. Navigate to `freetv-tooling` and run `npm install`.
-2. Navigate to `freetv-server` and run `npm install`.
-3. From the same `freetv-server` directory, run `composer install`.
+2. Navigate to `freetv-admin` and run `npm install`.
+3. From the same `freetv-admin` directory, run `composer install`.
 4. Navigate to `freetv-viewer` and run `npm install`.
 
-Configure MariaDB and the PHP runtime by following the [`freetv-server` Getting Started guide](https://github.com/freetv-today/freetv-server#getting-started).
+Configure MariaDB and the PHP runtime by following the [`freetv-admin` Getting Started guide](https://github.com/freetv-today/freetv-admin#getting-started).
 
 Return to `freetv-tooling` and verify that the configured repositories are available:
 
@@ -127,12 +127,12 @@ Use this table to find the appropriate Tooling workflow. Each FreeTV repository 
 | Run the complete local development environment | Run `npm run dev:all`. | Tooling starts the Viewer, Admin Dashboard, and PHP backend together and stops the coordinated environment when one process exits. |
 | Run only the Viewer | Run `npm run dev:viewer`. | Tooling starts the Viewer Vite development server using the configured Viewer port. |
 | Run only the Admin Dashboard frontend | Run `npm run dev:admin`. | Tooling starts the Admin Dashboard Vite development server and configures its API proxy for the selected PHP development port. The PHP backend must also be running for API-dependent features. |
-| Run only the PHP backend | Run `npm run dev:php`. | Tooling starts PHP from `freetv-server/public/` using the configured PHP development port. |
+| Run only the PHP backend | Run `npm run dev:php`. | Tooling starts PHP from `freetv-admin/public/` using the configured PHP development port. |
 | Install Viewer data for local development | Run `npm run dev:install-viewer-data`. | Tooling resets the Viewer's disposable `config.json`, playlist JSON, and thumbnail files from the configured `freetv-data` repository. |
 | Remove Viewer development data | Run `npm run dev:clean-viewer-data`. | Tooling removes the disposable Viewer data without deleting unrelated Viewer public assets. |
 | Change a development port | Edit the appropriate `dev` setting in `config/paths.json`, or use `VIEWER_PORT`, `ADMIN_PORT`, or `PHP_PORT` for a temporary override. | Tooling validates the selected ports before starting the development processes. The Admin API proxy automatically follows the Tooling-managed PHP port unless `VITE_API_PROXY_TARGET` is explicitly set. |
 | Build only the Viewer | Run `npm run build:viewer`. | Tooling creates the Viewer production frontend build in the Viewer repository. |
-| Build only the Admin Dashboard | Run `npm run build:admin`. | Tooling creates the Admin Dashboard production frontend build in the `freetv-server` repository. |
+| Build only the Admin Dashboard | Run `npm run build:admin`. | Tooling creates the Admin Dashboard production frontend build in the `freetv-admin` repository. |
 | Find unused thumbnails | Run `npm run clean:thumbs`. | Tooling performs a dry run and reports thumbnails that are not referenced by the current Admin data. |
 | Remove unused thumbnails | Review the dry-run results, then run `npm run clean:thumbs -- --apply`. | Tooling removes the reported unused thumbnails through the Admin thumbnail-cleanup utility. |
 | Build the complete production application | Run `npm run build:all`. | Tooling builds both frontends, exports and stages the current Viewer data and thumbnails, assembles the production directory, and independently verifies the result. Nothing is uploaded or deployed automatically. |
@@ -147,7 +147,7 @@ Use this table to find the appropriate Tooling workflow. Each FreeTV repository 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `repos.data` | `../freetv-data` | Location of the FreeTV Data repository. |
-| `repos.server` | `../freetv-server` | Location of the FreeTV Admin Dashboard repository. |
+| `repos.server` | `../freetv-admin` | Location of the FreeTV Admin Dashboard repository. |
 | `repos.viewer` | `../freetv-viewer` | Location of the FreeTV Viewer repository. |
 | `staging.root` | `staging` | Tooling-owned temporary staging directory. It must remain within `freetv-tooling/staging/`. |
 | `staging.data` | `data` | Data-artifact staging directory beneath `staging.root`. |
@@ -226,7 +226,7 @@ The [`How do I...?`](#how-do-i---) table covers the most common workflows. This 
 | `npm run dev:clean-viewer-data` | Remove the disposable Viewer `config.json`, playlists, and thumbnails without affecting unrelated public assets. |
 | `npm run dev:viewer` | Start the Viewer Vite development server. |
 | `npm run dev:admin` | Start the Admin Dashboard Vite development server with its PHP API proxy configured. |
-| `npm run dev:php` | Start the PHP API development server from `freetv-server/public/`. |
+| `npm run dev:php` | Start the PHP API development server from `freetv-admin/public/`. |
 | `npm run dev:all` | Start and coordinate the Viewer, Admin Dashboard, and PHP backend. |
 
 ### Production Assembly
@@ -235,7 +235,7 @@ The [`How do I...?`](#how-do-i---) table covers the most common workflows. This 
 | --- | --- |
 | `npm run build:viewer` | Run the Viewer production frontend build. |
 | `npm run build:admin` | Run the Admin Dashboard production frontend build. |
-| `npm run stage:exports` | Export current Viewer data and thumbnails from `freetv-server`, validate their manifests and contents, and place them in Tooling-owned staging directories. |
+| `npm run stage:exports` | Export current Viewer data and thumbnails from `freetv-admin`, validate their manifests and contents, and place them in Tooling-owned staging directories. |
 | `npm run build:data` | Alias for `npm run stage:exports`. |
 | `npm run assemble` | Replace the configured production output with an assembled package created from the validated frontend builds, staged exports, PHP API, Composer runtime, and First Run resources. |
 | `npm run verify` | Independently verify an existing production assembly. |

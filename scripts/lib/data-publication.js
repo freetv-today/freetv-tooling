@@ -328,6 +328,84 @@ export function promotePublicationCandidate({ candidateRoot, dataRoot, runId, co
   }
 }
 
+function syncSqlPackagesToAdmin({ dataRoot, adminSqlRoot, runId }) {
+  requireSafeDirectory(adminSqlRoot, 'FreeTV Admin SQL directory');
+  if (pathsOverlap(adminSqlRoot, dataRoot)) {
+    throw new Error('FreeTV Admin SQL directory must not overlap freetv-data');
+  }
+  for (const filename of SQL_PACKAGE_FILES) {
+    const source = path.join(dataRoot, filename);
+    requireSafeFile(source, `Published SQL package ${filename}`);
+    const target = path.join(adminSqlRoot, filename);
+    if (pathEntryExists(target) && (fs.lstatSync(target).isSymbolicLink() || !fs.lstatSync(target).isFile())) {
+      throw new Error(`FreeTV Admin SQL target is not a safe regular file: ${target}`);
+    }
+  }
+
+  const transactionRoot = path.join(adminSqlRoot, `.freetv-data-publish-${runId}`);
+  const staleTransaction = fs.readdirSync(adminSqlRoot)
+    .find((name) => name.startsWith('.freetv-data-publish-'));
+  if (staleTransaction) {
+    throw new Error(`Unresolved Admin SQL sync transaction requires inspection: ${path.join(adminSqlRoot, staleTransaction)}`);
+  }
+  if (pathEntryExists(transactionRoot)) throw new Error(`Admin SQL sync transaction path already exists: ${transactionRoot}`);
+  const preparedRoot = path.join(transactionRoot, 'new');
+  const backupRoot = path.join(transactionRoot, 'old');
+  fs.mkdirSync(preparedRoot, { recursive: true });
+  fs.mkdirSync(backupRoot);
+  try {
+    for (const filename of SQL_PACKAGE_FILES) {
+      fs.copyFileSync(path.join(dataRoot, filename), path.join(preparedRoot, filename));
+      fs.chmodSync(path.join(preparedRoot, filename), fs.statSync(path.join(dataRoot, filename)).mode);
+    }
+  } catch (error) {
+    fs.rmSync(transactionRoot, { recursive: true, force: true });
+    throw new Error(`Could not prepare FreeTV Admin SQL sync: ${error.message}`, { cause: error });
+  }
+
+  const states = SQL_PACKAGE_FILES.map((filename) => ({ filename, backedUp: false, installed: false }));
+  try {
+    for (const state of states) {
+      const target = path.join(adminSqlRoot, state.filename);
+      const backup = path.join(backupRoot, state.filename);
+      const prepared = path.join(preparedRoot, state.filename);
+      if (pathEntryExists(target)) {
+        fs.renameSync(target, backup);
+        state.backedUp = true;
+      }
+      fs.renameSync(prepared, target);
+      state.installed = true;
+    }
+  } catch (error) {
+    const rollbackFailures = [];
+    for (const state of [...states].reverse()) {
+      const target = path.join(adminSqlRoot, state.filename);
+      const backup = path.join(backupRoot, state.filename);
+      const prepared = path.join(preparedRoot, state.filename);
+      try {
+        if (state.installed && pathEntryExists(target)) fs.renameSync(target, prepared);
+        if (state.backedUp && pathEntryExists(backup)) fs.renameSync(backup, target);
+      } catch (rollbackError) {
+        rollbackFailures.push(`${state.filename}: ${rollbackError.message}`);
+      }
+    }
+    if (rollbackFailures.length > 0) {
+      throw new Error(
+        `FreeTV Admin SQL sync failed and rollback was incomplete; recovery state retained at ${transactionRoot}: ${rollbackFailures.join('; ')}`,
+        { cause: error },
+      );
+    }
+    fs.rmSync(transactionRoot, { recursive: true, force: true });
+    throw new Error(`FreeTV Admin SQL sync failed and was rolled back: ${error.message}`, { cause: error });
+  }
+
+  try {
+    fs.rmSync(transactionRoot, { recursive: true, force: true });
+  } catch (error) {
+    throw new Error(`FreeTV Admin SQL packages were synced, but transaction cleanup failed; inspect ${transactionRoot}: ${error.message}`, { cause: error });
+  }
+}
+
 function quietLogger(logger) {
   return { log() {}, warn: (...args) => logger.warn?.(...args), error: (...args) => logger.error?.(...args) };
 }
@@ -372,8 +450,18 @@ export async function publishDataset({
       context: candidate.context,
     });
     promoted = true;
+    try {
+      syncSqlPackagesToAdmin({
+        dataRoot: paths.dataRoot,
+        adminSqlRoot: path.join(paths.serverRoot, 'sql'),
+        runId,
+      });
+    } catch (error) {
+      throw new Error(`Dataset was published locally, but FreeTV Admin SQL sync failed: ${error.message}`, { cause: error });
+    }
     result = {
       dataRoot: paths.dataRoot,
+      adminSqlRoot: path.join(paths.serverRoot, 'sql'),
       manifest: candidate.manifest,
       thumbnailBytes: artifacts.thumbnailManifest.dataset.total_bytes,
     };

@@ -2,7 +2,7 @@
   "repos": {
     "data": "../freetv-data",
     "viewer": "../freetv-viewer",
-    "server": "../freetv-server"
+    "server": "../freetv-admin"
   },
   "staging": {
     "root": "staging",

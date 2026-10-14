@@ -4,7 +4,7 @@ This document describes FreeTV’s advanced canonical-dataset and First Run rele
 
 These workflows are intended for the FreeTV project maintainer or another operator who wants to maintain and distribute a complete FreeTV dataset from their own repository or hosting environment. They are not required for ordinary Admin Dashboard or Viewer development.
 
-Most administrators only need to organize content in the FreeTV Admin Dashboard and use **Publish** to export static JSON for their Viewer. That normal Viewer-publication workflow is documented in the [`freetv-server` README](https://github.com/freetv-today/freetv-server#publishing-viewer-data).
+Most administrators only need to organize content in the FreeTV Admin Dashboard and use **Publish** to export static JSON for their Viewer. That normal Viewer-publication workflow is documented in the [`freetv-admin` README](https://github.com/freetv-today/freetv-admin#publishing-viewer-data).
 
 > [!IMPORTANT]
 > FreeTV Tooling prepares and validates files locally. It does not commit changes, push to GitHub, create GitHub releases, upload release packages, update a remote server, or deploy FreeTV. Those remain deliberate operator actions.
@@ -46,19 +46,19 @@ Each step has a different safety boundary. A successful local command does not i
 Before using these workflows, prepare local copies of:
 
 - `freetv-tooling`
-- `freetv-server`
+- `freetv-admin`
 - `freetv-data`
 
 The default Tooling configuration expects these repositories to be siblings. Different locations can be configured through `freetv-tooling/config/paths.json`.
 
-Install the npm dependencies in `freetv-tooling` and `freetv-server`, then install the PHP dependencies in `freetv-server` with Composer.
+Install the npm dependencies in `freetv-tooling` and `freetv-admin`, then install the PHP dependencies in `freetv-admin` with Composer.
 
 The Admin environment used for dataset generation must also have:
 
 - working MariaDB configuration;
 - the current FreeTV database schema;
 - readable thumbnails;
-- PHP CLI and the PHP extensions required by `freetv-server`; and
+- PHP CLI and the PHP extensions required by `freetv-admin`; and
 - a MariaDB account that can read the configured FreeTV database and create and drop the disposable `freetv_test_*` databases used by the SQL restore-validation gate.
 
 Run the Tooling test suite and confirm the configured repository paths before beginning:
@@ -266,7 +266,7 @@ From `freetv-tooling`, run:
 npm run data:validate
 ```
 
-This command does not accept a snapshot argument. It validates fresh artifacts generated from the MariaDB database and thumbnail directory configured for the local `freetv-server` environment.
+This command does not accept a snapshot argument. It validates fresh artifacts generated from the MariaDB database and thumbnail directory configured for the local `freetv-admin` environment.
 
 ### Validation Process
 
@@ -353,7 +353,7 @@ A cleanup failure also makes the validation fail. Review any retained temporary 
 
 * use or modify the previously captured Data Snapshot;
 * update `freetv-data`;
-* replace the canonical SQL files in `freetv-server`;
+* replace the canonical SQL files in `freetv-admin`;
 * commit or push Git changes;
 * build First Run release ZIPs;
 * upload anything; or
@@ -397,7 +397,8 @@ Do not store the reconciliation snapshot inside `freetv-data`. Tooling rejects s
 7. Prepare a publication transaction inside the local `freetv-data` repository.
 8. Back up the existing managed paths within that temporary transaction.
 9. Promote the new managed paths into `freetv-data`.
-10. Remove the temporary transaction and validation staging after success.
+10. Copy the six published SQL packages into the configured Admin repository's `sql/` directory using a rollback-capable sync transaction.
+11. Remove the temporary transaction and validation staging after success.
 
 The validation gate is rerun even if `npm run data:validate` was run separately. The standalone command provides an explicit checkpoint for operator review; the internal gate prevents publication from proceeding without a current successful validation.
 
@@ -421,6 +422,8 @@ manifest.json
 ```
 
 Other files in the repository, including its README, license, and Git metadata, are not part of the publication transaction.
+
+After the `freetv-data` promotion succeeds, the same six SQL packages are synchronized to `freetv-admin/sql/`. This keeps the Admin repository's SQL reference copies aligned with the published dataset. The bundled First Run baseline archive is a separate, intentionally fixed sample and is not changed by `data:publish`.
 
 The publication candidate must contain the exact managed file set. Missing, duplicate, unexpected, unsafe, or symbolic-link entries cause publication to fail.
 
@@ -456,6 +459,8 @@ If rollback is incomplete, Tooling retains the transaction directory and reports
 Tooling refuses to start a new publication while an unresolved `.freetv-publication-*` directory exists in `freetv-data`.
 
 If all managed paths were promoted but transaction or staging cleanup fails, the dataset may already have been updated even though the command exits with an error. Read the complete error message and inspect both `freetv-data` and the reported temporary path before retrying.
+
+If the Admin SQL sync fails, `freetv-data` has already been published. Tooling attempts to roll back the Admin SQL files as a group and reports any retained recovery directory. Resolve the reported condition and rerun publication to bring both locations into sync.
 
 > [!CAUTION]
 > The successful transaction backup is temporary and is deleted after publication. Review the resulting Git diff before committing. Git history or a separate operator backup remains the durable recovery mechanism after a successful publication.

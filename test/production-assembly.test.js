@@ -64,7 +64,7 @@ function createWorkspace(t) {
   t.after(() => fs.rmSync(workspaceRoot, { recursive: true, force: true }));
   const toolingRoot = path.join(workspaceRoot, 'freetv-tooling');
   const viewerRoot = path.join(workspaceRoot, 'freetv-viewer');
-  const serverRoot = path.join(workspaceRoot, 'freetv-server');
+  const serverRoot = path.join(workspaceRoot, 'freetv-admin');
   fs.mkdirSync(toolingRoot);
 
   writeFile(viewerRoot, 'dist/.htaccess', SPA_HTACCESS);
@@ -104,7 +104,7 @@ function createWorkspace(t) {
   const dataManifest = writeDataStaging(dataRoot);
   const thumbnailManifest = writeThumbnailStaging(thumbnailRoot);
   const config = {
-    repos: { viewer: '../freetv-viewer', server: '../freetv-server' },
+    repos: { viewer: '../freetv-viewer', server: '../freetv-admin' },
     staging: { root: 'staging', data: 'data', thumbnails: 'thumbnails' },
     output: { root: '../production' },
   };

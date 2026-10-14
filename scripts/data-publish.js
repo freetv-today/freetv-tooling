@@ -35,17 +35,18 @@ export async function runDataPublishCli({
       `  Thumbnail bytes: ${result.thumbnailBytes}`,
       '',
       `Updated: ${result.dataRoot}`,
+      `Admin SQL copies synchronized: ${result.adminSqlRoot}`,
       'No Git operations, GitHub release, or deployment occurred.',
     ].join('\n'));
     return 0;
   } catch (error) {
     if (error.message.includes('Mandatory validation gate returned NO GO')) {
       logger.error('NO GO — Dataset was not published');
-    } else if (error.message.includes('rollback was incomplete')) {
-      logger.error('Dataset publication failed and rollback was incomplete; inspect the retained recovery state');
     } else if (error.message.startsWith('Dataset was published locally, but ')
       || error.message.startsWith('Dataset was promoted, but ')) {
-      logger.error('Dataset was published locally, but temporary publication cleanup failed');
+      logger.error('Dataset was published locally, but a follow-up sync or cleanup step failed');
+    } else if (error.message.includes('rollback was incomplete')) {
+      logger.error('Dataset publication failed and rollback was incomplete; inspect the retained recovery state');
     } else {
       logger.error('Dataset publication failed — freetv-data was not updated');
     }
