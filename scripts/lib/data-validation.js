@@ -5,7 +5,7 @@ import path from 'node:path';
 import {
   resetStaging,
   resolveStagingPaths,
-  stageServerExports,
+  stageAdminExports,
 } from './export-staging.js';
 
 const CANDIDATE_MARKER = '.freetv-sql-candidate';
@@ -49,22 +49,22 @@ export function resolveDatasetValidationPaths(toolingRoot, config, runId) {
 
   const resolvedToolingRoot = path.resolve(toolingRoot);
   requireDirectory(resolvedToolingRoot, 'FreeTV Tooling repository');
-  const serverRoot = configuredRepository(resolvedToolingRoot, config, 'server');
+  const adminRoot = configuredRepository(resolvedToolingRoot, config, 'admin');
   const dataRoot = configuredRepository(resolvedToolingRoot, config, 'data');
-  requireDirectory(serverRoot, 'FreeTV Server repository');
+  requireDirectory(adminRoot, 'FreeTV Admin repository');
   requireDirectory(dataRoot, 'FreeTV Data repository');
 
-  for (const [label, repository] of [['Server', serverRoot], ['Data', dataRoot]]) {
+  for (const [label, repository] of [['Admin', adminRoot], ['Data', dataRoot]]) {
     if (repository === path.parse(repository).root || repository === resolvedToolingRoot) {
       throw new Error(`FreeTV ${label} repository resolves to an unsafe path`);
     }
   }
-  if (pathsOverlap(serverRoot, dataRoot)) {
-    throw new Error('FreeTV Server and Data repository paths must not overlap');
+  if (pathsOverlap(adminRoot, dataRoot)) {
+    throw new Error('FreeTV Admin and Data repository paths must not overlap');
   }
 
   const staging = resolveStagingPaths(resolvedToolingRoot, config);
-  for (const repository of [serverRoot, dataRoot]) {
+  for (const repository of [adminRoot, dataRoot]) {
     if (pathsOverlap(repository, staging.ownedRoot)) {
       throw new Error(`Tooling-owned staging must not overlap a repository: ${repository}`);
     }
@@ -75,22 +75,22 @@ export function resolveDatasetValidationPaths(toolingRoot, config, runId) {
     'tools/export-thumbnails.php',
     'tools/generate-sql-packages.php',
     'tools/validate-sql-packages.php',
-  ]) requireFile(path.join(serverRoot, relativePath), `Required Server tool ${relativePath}`);
-  requireDirectory(path.join(serverRoot, 'sql'), 'Canonical Server SQL directory');
+  ]) requireFile(path.join(adminRoot, relativePath), `Required Admin tool ${relativePath}`);
+  requireDirectory(path.join(adminRoot, 'sql'), 'Canonical Admin SQL directory');
 
   const validationRoot = path.join(staging.stagingRoot, `data-validation-${runId}`);
   if (!isWithin(validationRoot, staging.stagingRoot)) {
     throw new Error('Dataset validation staging path escapes configured Tooling staging');
   }
   const sqlRoot = path.join(validationRoot, 'sql');
-  const canonicalSqlRoot = path.join(serverRoot, 'sql');
+  const canonicalSqlRoot = path.join(adminRoot, 'sql');
   if (pathsOverlap(sqlRoot, canonicalSqlRoot)) {
-    throw new Error('Temporary SQL candidate must not overlap canonical Server SQL');
+    throw new Error('Temporary SQL candidate must not overlap canonical Admin SQL');
   }
 
   return {
     toolingRoot: resolvedToolingRoot,
-    serverRoot,
+    adminRoot,
     dataRoot,
     stagingOwnedRoot: staging.ownedRoot,
     validationRoot,
@@ -160,7 +160,7 @@ export async function generateValidatedDatasetArtifacts({
 }) {
   let stage = 'Viewer/data export';
   try {
-    const staged = await stageServerExports({
+    const staged = await stageAdminExports({
       toolingRoot: paths.toolingRoot,
       config: paths.stagingConfig,
       commandRunner,
@@ -181,7 +181,7 @@ export async function generateValidatedDatasetArtifacts({
         `--expect-shows=${showCount}`,
         `--output-dir=${paths.sqlRoot}`,
       ],
-      cwd: paths.serverRoot,
+      cwd: paths.adminRoot,
       label: 'SQL package generator',
     });
     const sqlSummary = parseSqlPackageSummary(generation?.stdout ?? '');
@@ -204,7 +204,7 @@ export async function generateValidatedDatasetArtifacts({
         `--expect-sample-shows=${sqlSummary.sample_count}`,
         `--package-dir=${paths.sqlRoot}`,
       ],
-      cwd: paths.serverRoot,
+      cwd: paths.adminRoot,
       label: 'SQL package restore validator',
     });
 

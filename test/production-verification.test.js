@@ -123,7 +123,7 @@ function createFixture(t) {
   writeFile(outputRoot, 'public/thumbs/tt0000001.jpg', fs.readFileSync(path.join(toolingRoot, 'staging/thumbnails/thumbs/tt0000001.jpg')));
 
   const config = {
-    repos: { viewer: '../freetv-viewer', server: '../freetv-admin' },
+    repos: { viewer: '../freetv-viewer', admin: '../freetv-admin' },
     staging: { root: 'staging', data: 'data', thumbnails: 'thumbnails' },
     output: { root: '../production' },
   };

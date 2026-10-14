@@ -88,25 +88,25 @@ function treeSnapshot(root) {
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'freetv-data-validation-'));
   const toolingRoot = path.join(root, 'tooling');
-  const serverRoot = path.join(root, 'server');
+  const adminRoot = path.join(root, 'admin');
   const dataRoot = path.join(root, 'data');
   for (const tool of [
     'export-viewer-data.php',
     'export-thumbnails.php',
     'generate-sql-packages.php',
     'validate-sql-packages.php',
-  ]) write(path.join(serverRoot, 'tools', tool), '<?php');
-  write(path.join(serverRoot, 'sql/canonical.sql'), '-- keep');
+  ]) write(path.join(adminRoot, 'tools', tool), '<?php');
+  write(path.join(adminRoot, 'sql/canonical.sql'), '-- keep');
   write(path.join(dataRoot, 'config.json'), '{"published":true}\n');
   write(path.join(dataRoot, 'playlists/index.json'), '{}\n');
   write(path.join(dataRoot, 'thumbs/keep.jpg'), 'keep');
   write(path.join(toolingRoot, 'staging/keep.txt'), 'keep');
   const config = {
-    repos: { server: '../server', data: '../data' },
+    repos: { admin: '../admin', data: '../data' },
     staging: { root: 'staging', data: 'data', thumbnails: 'thumbnails' },
   };
   t.after(() => fs.rmSync(root, { force: true, recursive: true }));
-  return { config, dataRoot, root, serverRoot, toolingRoot };
+  return { config, dataRoot, root, adminRoot, toolingRoot };
 }
 
 function mockRunner({ failLabel, mismatch = false } = {}) {
@@ -114,8 +114,8 @@ function mockRunner({ failLabel, mismatch = false } = {}) {
   const runner = async (command) => {
     calls.push(command);
     if (command.label === failLabel) throw new Error(`${failLabel} injected failure`);
-    if (command.label === 'Server Data exporter') writeDataExport(command.args[1]);
-    if (command.label === 'Server Thumbnail exporter') writeThumbnailExport(command.args[1]);
+    if (command.label === 'Admin Data exporter') writeDataExport(command.args[1]);
+    if (command.label === 'Admin Thumbnail exporter') writeThumbnailExport(command.args[1]);
     if (command.label === 'SQL package generator') {
       const output = command.args.find((argument) => argument.startsWith('--output-dir=')).slice('--output-dir='.length);
       for (const filename of SQL_FILES) write(path.join(output, filename), '-- candidate');
@@ -137,11 +137,11 @@ const silentLogger = { log() {}, warn() {} };
 test('resolves configured repositories and a unique Tooling-owned staging child', (t) => {
   const expected = fixture(t);
   const paths = resolveDatasetValidationPaths(expected.toolingRoot, expected.config, 'abcdef123456');
-  assert.equal(paths.serverRoot, expected.serverRoot);
+  assert.equal(paths.adminRoot, expected.adminRoot);
   assert.equal(paths.dataRoot, expected.dataRoot);
   assert.equal(paths.validationRoot, path.join(expected.toolingRoot, 'staging/data-validation-abcdef123456'));
   assert.equal(paths.sqlRoot, path.join(paths.validationRoot, 'sql'));
-  assert.notEqual(paths.sqlRoot, path.join(expected.serverRoot, 'sql'));
+  assert.notEqual(paths.sqlRoot, path.join(expected.adminRoot, 'sql'));
 });
 
 test('successful validation derives counts from manifests and cleans all candidate state', async (t) => {
@@ -170,13 +170,13 @@ test('successful validation derives counts from manifests and cleans all candida
   assert.ok(generator.args.includes('--expect-shows=913'));
   const outputDirectory = generator.args.find((argument) => argument.startsWith('--output-dir=')).slice('--output-dir='.length);
   assert.match(outputDirectory, /staging[/\\]data-validation-abcdef123456[/\\]sql$/u);
-  assert.notEqual(outputDirectory, path.join(expected.serverRoot, 'sql'));
+  assert.notEqual(outputDirectory, path.join(expected.adminRoot, 'sql'));
   const validator = mocked.calls.find((call) => call.label === 'SQL package restore validator');
   assert.ok(validator.args.includes('--expect-sample-shows=37'));
   assert.ok(validator.args.includes(`--package-dir=${outputDirectory}`));
   assert.equal(fs.existsSync(path.dirname(outputDirectory)), false);
   assert.equal(fs.readFileSync(path.join(expected.toolingRoot, 'staging/keep.txt'), 'utf8'), 'keep');
-  assert.equal(fs.readFileSync(path.join(expected.serverRoot, 'sql/canonical.sql'), 'utf8'), '-- keep');
+  assert.equal(fs.readFileSync(path.join(expected.adminRoot, 'sql/canonical.sql'), 'utf8'), '-- keep');
   assert.deepEqual(treeSnapshot(expected.dataRoot), dataBefore);
   assert.match(output.join('\n'), /GO — Dataset is safe to publish/u);
   assert.doesNotMatch(output.join('\n'), /NO GO/u);
@@ -215,7 +215,7 @@ test('Viewer/SQL count mismatch fails before restore validation and still cleans
 });
 
 for (const [name, label, expectedStage] of [
-  ['exporter', 'Server Data exporter', 'Viewer/data export'],
+  ['exporter', 'Admin Data exporter', 'Viewer/data export'],
   ['SQL generation', 'SQL package generator', 'SQL generation'],
   ['SQL restore validation', 'SQL package restore validator', 'SQL restore validation'],
 ]) {
@@ -240,19 +240,19 @@ for (const [name, label, expectedStage] of [
 
 test('unsafe repository configuration is rejected before staging is changed', (t) => {
   const expected = fixture(t);
-  const unsafe = { ...expected.config, repos: { ...expected.config.repos, server: '.' } };
+  const unsafe = { ...expected.config, repos: { ...expected.config.repos, admin: '.' } };
   assert.throws(
     () => resolveDatasetValidationPaths(expected.toolingRoot, unsafe, 'abcdef123456'),
-    /Server repository resolves to an unsafe path/u,
+    /Admin repository resolves to an unsafe path/u,
   );
   assert.equal(fs.readFileSync(path.join(expected.toolingRoot, 'staging/keep.txt'), 'utf8'), 'keep');
 });
 
 test('symbolic-link repository configuration is rejected', { skip: process.platform === 'win32' }, (t) => {
   const expected = fixture(t);
-  const link = path.join(expected.root, 'server-link');
-  fs.symlinkSync(expected.serverRoot, link, 'dir');
-  const unsafe = { ...expected.config, repos: { ...expected.config.repos, server: '../server-link' } };
+  const link = path.join(expected.root, 'admin-link');
+  fs.symlinkSync(expected.adminRoot, link, 'dir');
+  const unsafe = { ...expected.config, repos: { ...expected.config.repos, admin: '../admin-link' } };
   assert.throws(
     () => resolveDatasetValidationPaths(expected.toolingRoot, unsafe, 'abcdef123456'),
     /missing or is not a directory|symbolic link/u,

@@ -14,9 +14,9 @@ const __dirname = path.dirname(__filename);
 const toolingRoot = path.resolve(__dirname, '..');
 const config = JSON.parse(fs.readFileSync(path.resolve(toolingRoot, 'config/paths.json'), 'utf8'));
 
-const adminRoot = path.resolve(toolingRoot, config.repos.server);
+const adminRoot = path.resolve(toolingRoot, config.repos.admin);
 const label = DEVELOPMENT_PRODUCTS.admin;
-const port = resolveDevelopmentPort(process.env.ADMIN_PORT || config.dev.serverPort, label);
+const port = resolveDevelopmentPort(process.env.ADMIN_PORT || config.dev.adminPort, label);
 
 export function spawnAdminVite({
   environment = process.env,

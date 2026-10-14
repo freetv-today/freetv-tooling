@@ -2,7 +2,7 @@
   "repos": {
     "data": "../freetv-data",
     "viewer": "../freetv-viewer",
-    "server": "../freetv-admin"
+    "admin": "../freetv-admin"
   },
   "staging": {
     "root": "staging",
@@ -14,7 +14,7 @@
   },
   "dev": {
     "viewerPort": 5173,
-    "serverPort": 5174,
+    "adminPort": 5174,
     "phpPort": 8081
   }
 }

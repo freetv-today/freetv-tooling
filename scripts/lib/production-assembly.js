@@ -178,7 +178,7 @@ export function resolveAssemblyPaths(toolingRoot, config) {
   if (!isObject(config.repos) || !isObject(config.staging) || !isObject(config.output)) {
     throw new Error('Assembly config must define repos, staging, and output objects');
   }
-  for (const key of ['viewer', 'server']) {
+  for (const key of ['viewer', 'admin']) {
     if (typeof config.repos[key] !== 'string' || config.repos[key].trim() === '') {
       throw new Error(`config.repos.${key} must be a non-empty path`);
     }
@@ -189,7 +189,7 @@ export function resolveAssemblyPaths(toolingRoot, config) {
 
   const resolvedToolingRoot = path.resolve(toolingRoot);
   const viewerRoot = path.resolve(resolvedToolingRoot, config.repos.viewer);
-  const serverRoot = path.resolve(resolvedToolingRoot, config.repos.server);
+  const adminRoot = path.resolve(resolvedToolingRoot, config.repos.admin);
   const stagingRoot = path.resolve(resolvedToolingRoot, config.staging.root ?? '');
   const dataStagingRoot = path.resolve(stagingRoot, config.staging.data ?? '');
   const thumbnailStagingRoot = path.resolve(stagingRoot, config.staging.thumbnails ?? '');
@@ -200,7 +200,7 @@ export function resolveAssemblyPaths(toolingRoot, config) {
   if (!isWithin(outputRoot, outputBoundary, true)) {
     throw new Error(`Production output must be inside the expected Tooling-owned boundary: ${outputBoundary}`);
   }
-  const protectedRoots = [resolvedToolingRoot, viewerRoot, serverRoot, stagingRoot, dataStagingRoot, thumbnailStagingRoot];
+  const protectedRoots = [resolvedToolingRoot, viewerRoot, adminRoot, stagingRoot, dataStagingRoot, thumbnailStagingRoot];
   for (const protectedRoot of protectedRoots) {
     if (pathsOverlap(outputRoot, protectedRoot)) {
       throw new Error(`Production output must not overlap a source or staging root: ${protectedRoot}`);
@@ -211,7 +211,7 @@ export function resolveAssemblyPaths(toolingRoot, config) {
   return {
     toolingRoot: resolvedToolingRoot,
     viewerRoot,
-    serverRoot,
+    adminRoot,
     stagingRoot,
     dataStagingRoot,
     thumbnailStagingRoot,
@@ -417,9 +417,9 @@ export function validateProductionOutput({ paths, dataManifest, thumbnailManifes
 
 function validatePreconditions(paths) {
   const viewerDist = path.join(paths.viewerRoot, 'dist');
-  const adminDist = path.join(paths.serverRoot, 'dist');
-  const apiRoot = path.join(paths.serverRoot, 'public/api');
-  const vendorRoot = path.join(paths.serverRoot, 'vendor');
+  const adminDist = path.join(paths.adminRoot, 'dist');
+  const apiRoot = path.join(paths.adminRoot, 'public/api');
+  const vendorRoot = path.join(paths.adminRoot, 'vendor');
 
   validateViewerDist(viewerDist);
   validateAdminDist(adminDist);
@@ -428,11 +428,11 @@ function validatePreconditions(paths) {
   validateManifestOwnership(dataManifest, thumbnailManifest);
 
   requirePath(apiRoot, 'directory', 'Server public/api');
-  requirePath(path.join(paths.serverRoot, 'composer.json'), 'file', 'Server composer.json');
-  requirePath(path.join(paths.serverRoot, 'composer.lock'), 'file', 'Server composer.lock');
+  requirePath(path.join(paths.adminRoot, 'composer.json'), 'file', 'Server composer.json');
+  requirePath(path.join(paths.adminRoot, 'composer.lock'), 'file', 'Server composer.lock');
   for (const relativePath of FIRST_RUN_RUNTIME_FILES) {
     requirePath(
-      path.join(paths.serverRoot, relativePath),
+      path.join(paths.adminRoot, relativePath),
       'file',
       `Server First Run runtime input ${relativePath}`,
     );
@@ -460,7 +460,7 @@ function resetProductionOutput(paths) {
   const checked = resolveAssemblyPaths(paths.toolingRoot, {
     repos: {
       viewer: path.relative(paths.toolingRoot, paths.viewerRoot),
-      server: path.relative(paths.toolingRoot, paths.serverRoot),
+      admin: path.relative(paths.toolingRoot, paths.adminRoot),
     },
     staging: {
       root: path.relative(paths.toolingRoot, paths.stagingRoot),
@@ -486,11 +486,11 @@ export function assembleProduction({ toolingRoot, config }) {
     copyTreeOwned(inputs.viewerDist, paths.publicRoot, 'Viewer', ownership);
     copyTreeOwned(inputs.adminDist, path.join(paths.publicRoot, 'admin'), 'Admin', ownership);
     copyTreeOwned(inputs.apiRoot, path.join(paths.publicRoot, 'api'), 'Server API', ownership, inputs.apiEntries.included);
-    copyFileOwned(path.join(paths.serverRoot, 'composer.json'), path.join(paths.outputRoot, 'composer.json'), 'Composer', ownership);
-    copyFileOwned(path.join(paths.serverRoot, 'composer.lock'), path.join(paths.outputRoot, 'composer.lock'), 'Composer', ownership);
+    copyFileOwned(path.join(paths.adminRoot, 'composer.json'), path.join(paths.outputRoot, 'composer.json'), 'Composer', ownership);
+    copyFileOwned(path.join(paths.adminRoot, 'composer.lock'), path.join(paths.outputRoot, 'composer.lock'), 'Composer', ownership);
     for (const relativePath of FIRST_RUN_RUNTIME_FILES) {
       copyFileOwned(
-        path.join(paths.serverRoot, relativePath),
+        path.join(paths.adminRoot, relativePath),
         path.join(paths.outputRoot, relativePath),
         'Server First Run',
         ownership,

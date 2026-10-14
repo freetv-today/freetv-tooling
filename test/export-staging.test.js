@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   resetStaging,
-  stageServerExports,
+  stageAdminExports,
   validateDataManifest,
   validateThumbnailManifest,
 } from '../scripts/lib/export-staging.js';
@@ -151,12 +151,12 @@ test('unsafe Thumbnail path fails', (t) => {
 
 function workflowConfig() {
   return {
-    repos: { server: 'server' },
+    repos: { admin: 'admin' },
     staging: { root: 'staging', data: 'data', thumbnails: 'thumbnails' },
   };
 }
 
-test('Server Data exporter failure stops the workflow', async (t) => {
+test('Admin Data exporter failure stops the workflow', async (t) => {
   const toolingRoot = temporaryRoot(t);
   let calls = 0;
   const runner = async () => {
@@ -164,7 +164,7 @@ test('Server Data exporter failure stops the workflow', async (t) => {
     throw new Error('data failed');
   };
   await assert.rejects(
-    stageServerExports({ toolingRoot, config: workflowConfig(), commandRunner: runner }),
+    stageAdminExports({ toolingRoot, config: workflowConfig(), commandRunner: runner }),
     /data failed/,
   );
   assert.equal(calls, 1);
@@ -180,7 +180,7 @@ test('Thumbnail exporter failure removes this run staging', async (t) => {
     else throw new Error('thumbnail failed');
   };
   await assert.rejects(
-    stageServerExports({ toolingRoot, config: workflowConfig(), commandRunner: runner }),
+    stageAdminExports({ toolingRoot, config: workflowConfig(), commandRunner: runner }),
     /thumbnail failed/,
   );
   assert.equal(calls, 2);

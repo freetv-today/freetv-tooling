@@ -137,13 +137,13 @@ function writeArtifacts(paths) {
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'freetv-data-publication-'));
   const toolingRoot = path.join(root, 'tooling');
-  const serverRoot = path.join(root, 'server');
+  const adminRoot = path.join(root, 'admin');
   const dataRoot = path.join(root, 'data');
   for (const tool of [
     'export-viewer-data.php', 'export-thumbnails.php', 'generate-sql-packages.php',
     'validate-sql-packages.php',
-  ]) write(path.join(serverRoot, 'tools', tool), '<?php');
-  write(path.join(serverRoot, 'sql/canonical.sql'), '-- canonical');
+  ]) write(path.join(adminRoot, 'tools', tool), '<?php');
+  write(path.join(adminRoot, 'sql/canonical.sql'), '-- canonical');
   write(path.join(toolingRoot, 'staging/keep.txt'), 'keep');
   write(path.join(dataRoot, '.git/HEAD'), 'ref: refs/heads/main\n');
   write(path.join(dataRoot, 'README.md'), 'preserve docs');
@@ -155,11 +155,11 @@ function fixture(t) {
   for (const filename of SQL_PACKAGE_FILES) write(path.join(dataRoot, filename), '-- stale\n');
   const snapshotRoot = writeSnapshot(root);
   const config = {
-    repos: { server: '../server', data: '../data' },
+    repos: { admin: '../admin', data: '../data' },
     staging: { root: 'staging', data: 'data', thumbnails: 'thumbnails' },
   };
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  return { root, toolingRoot, serverRoot, dataRoot, snapshotRoot, config };
+  return { root, toolingRoot, adminRoot, dataRoot, snapshotRoot, config };
 }
 
 function candidateFixture(t) {

@@ -11,24 +11,24 @@ import {
 function fixture(t, { includeCleanupScript = true } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'freetv-clean-thumbs-'));
   const toolingRoot = path.join(root, 'tooling');
-  const serverRoot = path.join(root, 'configured-server');
-  const cleanupScript = path.join(serverRoot, 'scripts/cleanup-orphan-thumbnails.php');
+  const adminRoot = path.join(root, 'configured-admin');
+  const cleanupScript = path.join(adminRoot, 'scripts/cleanup-orphan-thumbnails.php');
   fs.mkdirSync(path.join(toolingRoot, 'config'), { recursive: true });
   fs.mkdirSync(path.dirname(cleanupScript), { recursive: true });
   fs.writeFileSync(
     path.join(toolingRoot, 'config/paths.json'),
-    JSON.stringify({ repos: { server: '../configured-server' } }),
+    JSON.stringify({ repos: { admin: '../configured-admin' } }),
   );
   if (includeCleanupScript) fs.writeFileSync(cleanupScript, '<?php');
   t.after(() => fs.rmSync(root, { force: true, recursive: true }));
-  return { cleanupScript, serverRoot, toolingRoot };
+  return { cleanupScript, adminRoot, toolingRoot };
 }
 
-test('resolves the Server cleanup script through config repos.server', (t) => {
+test('resolves the Admin cleanup script through config repos.admin', (t) => {
   const expected = fixture(t);
   assert.deepEqual(resolveThumbnailCleanup(expected.toolingRoot), {
     cleanupScript: expected.cleanupScript,
-    serverRoot: expected.serverRoot,
+    adminRoot: expected.adminRoot,
   });
 });
 
@@ -47,7 +47,7 @@ test('default invocation delegates to PHP without apply mode', (t) => {
   assert.deepEqual(calls, [{
     command: 'php',
     args: [expected.cleanupScript],
-    options: { cwd: expected.serverRoot, stdio: 'inherit' },
+    options: { cwd: expected.adminRoot, stdio: 'inherit' },
   }]);
 });
 
@@ -95,7 +95,7 @@ test('a missing Server cleanup script fails without invoking PHP', (t) => {
         return { status: 0 };
       },
     }),
-    /FreeTV Server thumbnail cleanup script was not found/u,
+    /FreeTV Admin thumbnail cleanup script was not found/u,
   );
   assert.equal(invoked, false);
 });

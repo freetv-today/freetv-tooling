@@ -203,8 +203,8 @@ export function runCommand({ executable, args, cwd, label }) {
   });
 }
 
-export async function stageServerExports({ toolingRoot, config, commandRunner = runCommand, logger = console }) {
-  const serverRoot = path.resolve(toolingRoot, config.repos?.server ?? '');
+export async function stageAdminExports({ toolingRoot, config, commandRunner = runCommand, logger = console }) {
+  const adminRoot = path.resolve(toolingRoot, config.repos?.admin ?? '');
   const paths = resolveStagingPaths(toolingRoot, config);
 
   resetStaging(paths.stagingRoot, paths.ownedRoot);
@@ -216,16 +216,16 @@ export async function stageServerExports({ toolingRoot, config, commandRunner = 
     await commandRunner({
       executable: 'php',
       args: ['tools/export-viewer-data.php', paths.dataRoot],
-      cwd: serverRoot,
-      label: 'Server Data exporter',
+      cwd: adminRoot,
+      label: 'Admin Data exporter',
     });
     const dataManifest = validateDataManifest(paths.dataRoot);
 
     await commandRunner({
       executable: 'php',
       args: ['tools/export-thumbnails.php', paths.thumbnailRoot],
-      cwd: serverRoot,
-      label: 'Server Thumbnail exporter',
+      cwd: adminRoot,
+      label: 'Admin Thumbnail exporter',
     });
     const thumbnailManifest = validateThumbnailManifest(paths.thumbnailRoot);
 

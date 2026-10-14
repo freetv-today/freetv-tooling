@@ -64,7 +64,7 @@ function createWorkspace(t) {
   t.after(() => fs.rmSync(workspaceRoot, { recursive: true, force: true }));
   const toolingRoot = path.join(workspaceRoot, 'freetv-tooling');
   const viewerRoot = path.join(workspaceRoot, 'freetv-viewer');
-  const serverRoot = path.join(workspaceRoot, 'freetv-admin');
+  const adminRoot = path.join(workspaceRoot, 'freetv-admin');
   fs.mkdirSync(toolingRoot);
 
   writeFile(viewerRoot, 'dist/.htaccess', SPA_HTACCESS);
@@ -76,35 +76,35 @@ function createWorkspace(t) {
   writeFile(viewerRoot, 'dist/whitelabel.config.json', '{"smallLogo":"/freetv-small.png"}');
   writeFile(viewerRoot, 'dist/service-worker.js', '/* service worker */');
 
-  writeFile(serverRoot, 'dist/index.html', '<!doctype html>');
-  writeFile(serverRoot, 'dist/assets/admin.js', 'export {};');
-  writeFile(serverRoot, 'dist/assets/admin.css', 'body {}');
-  writeFile(serverRoot, 'public/api/index.php', '<?php');
-  writeFile(serverRoot, 'public/api/admin/status.php', '<?php');
-  writeFile(serverRoot, 'public/api/beacon.php', '<?php');
-  writeFile(serverRoot, 'public/api/.env', 'API_SECRET=fixture');
-  writeFile(serverRoot, 'public/api/tests/test.php', '<?php');
-  writeFile(serverRoot, 'public/api/backup.sql', 'fixture');
-  writeFile(serverRoot, 'composer.json', '{}\n');
-  writeFile(serverRoot, 'composer.lock', '{}\n');
-  writeFile(serverRoot, 'resources/bootstrap/fresh.json', '{"fresh":true}\n');
-  writeFile(serverRoot, 'resources/freetv-baseline-sample-data.zip', 'baseline ZIP fixture');
-  writeFile(serverRoot, 'sql/freetv_mariadb_schema-tables-only.sql', 'CREATE TABLE fixture;\n');
-  writeFile(serverRoot, 'vendor/autoload.php', '<?php');
-  writeFile(serverRoot, 'vendor/package/src/Dependency.php', '<?php');
-  writeFile(serverRoot, 'vendor/package/.git/config', 'fixture');
-  writeFile(serverRoot, 'vendor/package/tests/DependencyTest.php', '<?php');
-  writeFile(serverRoot, 'vendor/package/tools/generate.php', '<?php');
-  writeFile(serverRoot, '.env', 'DB_PASSWORD=fixture');
-  writeFile(serverRoot, 'temp/publication-undo/operation.json', '{}');
-  writeFile(serverRoot, 'temp/thumbnail-undo/backup.jpg', 'fixture');
+  writeFile(adminRoot, 'dist/index.html', '<!doctype html>');
+  writeFile(adminRoot, 'dist/assets/admin.js', 'export {};');
+  writeFile(adminRoot, 'dist/assets/admin.css', 'body {}');
+  writeFile(adminRoot, 'public/api/index.php', '<?php');
+  writeFile(adminRoot, 'public/api/admin/status.php', '<?php');
+  writeFile(adminRoot, 'public/api/beacon.php', '<?php');
+  writeFile(adminRoot, 'public/api/.env', 'API_SECRET=fixture');
+  writeFile(adminRoot, 'public/api/tests/test.php', '<?php');
+  writeFile(adminRoot, 'public/api/backup.sql', 'fixture');
+  writeFile(adminRoot, 'composer.json', '{}\n');
+  writeFile(adminRoot, 'composer.lock', '{}\n');
+  writeFile(adminRoot, 'resources/bootstrap/fresh.json', '{"fresh":true}\n');
+  writeFile(adminRoot, 'resources/freetv-baseline-sample-data.zip', 'baseline ZIP fixture');
+  writeFile(adminRoot, 'sql/freetv_mariadb_schema-tables-only.sql', 'CREATE TABLE fixture;\n');
+  writeFile(adminRoot, 'vendor/autoload.php', '<?php');
+  writeFile(adminRoot, 'vendor/package/src/Dependency.php', '<?php');
+  writeFile(adminRoot, 'vendor/package/.git/config', 'fixture');
+  writeFile(adminRoot, 'vendor/package/tests/DependencyTest.php', '<?php');
+  writeFile(adminRoot, 'vendor/package/tools/generate.php', '<?php');
+  writeFile(adminRoot, '.env', 'DB_PASSWORD=fixture');
+  writeFile(adminRoot, 'temp/publication-undo/operation.json', '{}');
+  writeFile(adminRoot, 'temp/thumbnail-undo/backup.jpg', 'fixture');
 
   const dataRoot = path.join(toolingRoot, 'staging/data');
   const thumbnailRoot = path.join(toolingRoot, 'staging/thumbnails');
   const dataManifest = writeDataStaging(dataRoot);
   const thumbnailManifest = writeThumbnailStaging(thumbnailRoot);
   const config = {
-    repos: { viewer: '../freetv-viewer', server: '../freetv-admin' },
+    repos: { viewer: '../freetv-viewer', admin: '../freetv-admin' },
     staging: { root: 'staging', data: 'data', thumbnails: 'thumbnails' },
     output: { root: '../production' },
   };
@@ -112,7 +112,7 @@ function createWorkspace(t) {
     workspaceRoot,
     toolingRoot,
     viewerRoot,
-    serverRoot,
+    adminRoot,
     outputRoot: path.join(workspaceRoot, 'production'),
     dataRoot,
     thumbnailRoot,
@@ -139,7 +139,7 @@ test('valid production assembly succeeds', (t) => {
   ]) {
     assert.deepEqual(
       fs.readFileSync(path.join(fixture.outputRoot, relativePath)),
-      fs.readFileSync(path.join(fixture.serverRoot, relativePath)),
+      fs.readFileSync(path.join(fixture.adminRoot, relativePath)),
     );
   }
 });
@@ -147,7 +147,7 @@ test('valid production assembly succeeds', (t) => {
 test('missing First Run source fails before replacing existing output', (t) => {
   const fixture = createWorkspace(t);
   writeFile(fixture.outputRoot, 'keep.txt', 'keep');
-  fs.rmSync(path.join(fixture.serverRoot, 'resources/bootstrap/fresh.json'));
+  fs.rmSync(path.join(fixture.adminRoot, 'resources/bootstrap/fresh.json'));
   assert.throws(() => assembleProduction(fixture), /Server First Run runtime input.*fresh\.json.*is missing/);
   assert.equal(fs.readFileSync(path.join(fixture.outputRoot, 'keep.txt'), 'utf8'), 'keep');
 });
@@ -210,7 +210,7 @@ test('outdated Viewer .htaccess without the API exclusion fails', (t) => {
 
 test('missing Admin dist fails', (t) => {
   const fixture = createWorkspace(t);
-  fs.rmSync(path.join(fixture.serverRoot, 'dist'), { recursive: true });
+  fs.rmSync(path.join(fixture.adminRoot, 'dist'), { recursive: true });
   assert.throws(() => assembleProduction(fixture), /Server Admin dist is missing/);
 });
 
@@ -222,7 +222,7 @@ test('missing staging fails', (t) => {
 
 test('missing vendor autoload fails', (t) => {
   const fixture = createWorkspace(t);
-  fs.rmSync(path.join(fixture.serverRoot, 'vendor/autoload.php'));
+  fs.rmSync(path.join(fixture.adminRoot, 'vendor/autoload.php'));
   assert.throws(() => assembleProduction(fixture), /vendor\/autoload.php is missing/);
 });
 
@@ -336,6 +336,6 @@ test('only declared ownership roots appear in production', (t) => {
 
 test('forbidden nested Admin runtime content is rejected before assembly', (t) => {
   const fixture = createWorkspace(t);
-  writeFile(fixture.serverRoot, 'dist/api/index.php', '<?php');
+  writeFile(fixture.adminRoot, 'dist/api/index.php', '<?php');
   assert.throws(() => assembleProduction(fixture), /Server Admin dist contains unexpected root entries/);
 });

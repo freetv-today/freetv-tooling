@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 const toolingRoot = path.resolve(__dirname, '..');
 const config = JSON.parse(fs.readFileSync(path.resolve(toolingRoot, 'config/paths.json'), 'utf8'));
 
-const phpRoot = path.resolve(toolingRoot, config.repos.server, 'public');
+const phpRoot = path.resolve(toolingRoot, config.repos.admin, 'public');
 const label = DEVELOPMENT_PRODUCTS.php;
 const port = resolveDevelopmentPort(process.env.PHP_PORT || config.dev.phpPort, label);
 

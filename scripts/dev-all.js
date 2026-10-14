@@ -21,7 +21,7 @@ const services = [
   },
   {
     label: DEVELOPMENT_PRODUCTS.admin,
-    port: resolveDevelopmentPort(process.env.ADMIN_PORT || config.dev.serverPort, DEVELOPMENT_PRODUCTS.admin),
+    port: resolveDevelopmentPort(process.env.ADMIN_PORT || config.dev.adminPort, DEVELOPMENT_PRODUCTS.admin),
     script: path.resolve(__dirname, 'dev-admin.js'),
   },
   {

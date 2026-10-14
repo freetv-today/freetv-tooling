@@ -20,21 +20,21 @@ export function resolveThumbnailCleanup(toolingRoot, fileSystem = fs) {
   }
 
   const config = JSON.parse(fileSystem.readFileSync(configPath, 'utf8'));
-  if (typeof config.repos?.server !== 'string' || config.repos.server.trim() === '') {
-    throw new Error(`Tooling paths configuration does not define repos.server: ${configPath}`);
+  if (typeof config.repos?.admin !== 'string' || config.repos.admin.trim() === '') {
+    throw new Error(`Tooling paths configuration does not define repos.admin: ${configPath}`);
   }
 
-  const serverRoot = path.resolve(toolingRoot, config.repos.server);
-  if (!fileSystem.existsSync(serverRoot) || !fileSystem.statSync(serverRoot).isDirectory()) {
-    throw new Error(`FreeTV Server repository was not found: ${serverRoot}`);
+  const adminRoot = path.resolve(toolingRoot, config.repos.admin);
+  if (!fileSystem.existsSync(adminRoot) || !fileSystem.statSync(adminRoot).isDirectory()) {
+    throw new Error(`FreeTV Admin repository was not found: ${adminRoot}`);
   }
 
-  const cleanupScript = path.join(serverRoot, 'scripts/cleanup-orphan-thumbnails.php');
+  const cleanupScript = path.join(adminRoot, 'scripts/cleanup-orphan-thumbnails.php');
   if (!fileSystem.existsSync(cleanupScript) || !fileSystem.statSync(cleanupScript).isFile()) {
-    throw new Error(`FreeTV Server thumbnail cleanup script was not found: ${cleanupScript}`);
+    throw new Error(`FreeTV Admin thumbnail cleanup script was not found: ${cleanupScript}`);
   }
 
-  return { cleanupScript, serverRoot };
+  return { cleanupScript, adminRoot };
 }
 
 export function runThumbnailCleanup({
@@ -43,14 +43,14 @@ export function runThumbnailCleanup({
   toolingRoot = defaultToolingRoot,
 } = {}) {
   const cleanupArguments = validateThumbnailCleanupArguments(args);
-  const { cleanupScript, serverRoot } = resolveThumbnailCleanup(toolingRoot);
+  const { cleanupScript, adminRoot } = resolveThumbnailCleanup(toolingRoot);
   const result = commandRunner('php', [cleanupScript, ...cleanupArguments], {
-    cwd: serverRoot,
+    cwd: adminRoot,
     stdio: 'inherit',
   });
 
   if (result.error) {
-    throw new Error(`Could not start the FreeTV Server thumbnail cleanup: ${result.error.message}`);
+    throw new Error(`Could not start the FreeTV Admin thumbnail cleanup: ${result.error.message}`);
   }
   return Number.isInteger(result.status) ? result.status : 1;
 }

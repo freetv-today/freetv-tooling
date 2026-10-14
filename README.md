@@ -147,7 +147,7 @@ Use this table to find the appropriate Tooling workflow. Each FreeTV repository 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `repos.data` | `../freetv-data` | Location of the FreeTV Data repository. |
-| `repos.server` | `../freetv-admin` | Location of the FreeTV Admin Dashboard repository. |
+| `repos.admin` | `../freetv-admin` | Location of the FreeTV Admin Dashboard repository. |
 | `repos.viewer` | `../freetv-viewer` | Location of the FreeTV Viewer repository. |
 | `staging.root` | `staging` | Tooling-owned temporary staging directory. It must remain within `freetv-tooling/staging/`. |
 | `staging.data` | `data` | Data-artifact staging directory beneath `staging.root`. |
@@ -161,7 +161,7 @@ The data and thumbnail staging directories must remain separate and may not over
 | Setting | Default | Process |
 | --- | --- | --- |
 | `dev.viewerPort` | `5173` | FreeTV Viewer Vite development server |
-| `dev.serverPort` | `5174` | FreeTV Admin Dashboard Vite development server |
+| `dev.adminPort` | `5174` | FreeTV Admin Dashboard Vite development server |
 | `dev.phpPort` | `8081` | PHP API development server |
 
 Ports must be integers from `1` through `65535`. The three coordinated development processes must use different available ports.
@@ -171,7 +171,7 @@ The configured ports can be overridden temporarily through environment variables
 | Environment variable | Overrides |
 | --- | --- |
 | `VIEWER_PORT` | `dev.viewerPort` |
-| `ADMIN_PORT` | `dev.serverPort` |
+| `ADMIN_PORT` | `dev.adminPort` |
 | `PHP_PORT` | `dev.phpPort` |
 
 For example:

@@ -453,7 +453,7 @@ export async function publishDataset({
     try {
       syncSqlPackagesToAdmin({
         dataRoot: paths.dataRoot,
-        adminSqlRoot: path.join(paths.serverRoot, 'sql'),
+        adminSqlRoot: path.join(paths.adminRoot, 'sql'),
         runId,
       });
     } catch (error) {
@@ -461,7 +461,7 @@ export async function publishDataset({
     }
     result = {
       dataRoot: paths.dataRoot,
-      adminSqlRoot: path.join(paths.serverRoot, 'sql'),
+      adminSqlRoot: path.join(paths.adminRoot, 'sql'),
       manifest: candidate.manifest,
       thumbnailBytes: artifacts.thumbnailManifest.dataset.total_bytes,
     };

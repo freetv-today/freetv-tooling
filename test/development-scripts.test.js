@@ -53,7 +53,7 @@ test('renamed launcher and build files replace the retired filenames', () => {
 
 test('development ports and Vite strict-port behavior are explicit', () => {
   assert.deepEqual(
-    [config.dev.viewerPort, config.dev.serverPort, config.dev.phpPort],
+    [config.dev.viewerPort, config.dev.adminPort, config.dev.phpPort],
     [5173, 5174, 8081],
   );
   assert.match(read('scripts/dev-viewer.js'), /'--strictPort'/u);

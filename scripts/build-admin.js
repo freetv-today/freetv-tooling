@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const toolingRoot = path.resolve(__dirname, '..');
 const config = JSON.parse(fs.readFileSync(path.resolve(toolingRoot, 'config/paths.json'), 'utf8'));
 
-const adminRoot = path.resolve(toolingRoot, config.repos.server);
+const adminRoot = path.resolve(toolingRoot, config.repos.admin);
 
 console.log('Building FreeTV Admin Dashboard...');
 const build = spawn('npm', ['run', 'build'], { cwd: adminRoot, stdio: 'inherit' });
