@@ -61,6 +61,16 @@ FreeTV Tooling does not install MariaDB, create database accounts, initialize th
 
 ## Getting Started
 
+### Experimental CLI
+
+Launch the initial interactive CLI with:
+
+```bash
+npm run freetv
+```
+
+It currently provides only a welcome screen and Exit option. Existing npm commands remain the supported way to run Tooling operations.
+
 Clone or download the four FreeTV repositories into the same parent directory. The default configuration expects this workspace layout:
 
 ```text
