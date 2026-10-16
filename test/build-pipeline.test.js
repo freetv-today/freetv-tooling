@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { runAdminBuild, runAdminBuildCli } from '../scripts/build-admin.js';
+import { runViewerBuild, runViewerBuildCli } from '../scripts/build-viewer.js';
+import { CommandExecutionError } from '../scripts/lib/command-runner.js';
 
 const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'package.json'), 'utf8'));
@@ -78,4 +81,59 @@ test('successful build:all uses the local completion message', () => {
   assert.match(completionScript, /config\.output\.root/u);
   assert.match(completionScript, /No deployment performed\./u);
   assert.doesNotMatch(completionScript, /\/home\//u);
+});
+
+test('Viewer and Admin build operations use exact commands, repositories, environment, and inherited output', async () => {
+  const calls = [];
+  const environment = { BUILD_FIXTURE: 'preserved' };
+  const config = { repos: { viewer: '../viewer-fixture', admin: '../admin-fixture' } };
+  const commandRunner = async (options) => {
+    calls.push(options);
+    return { kind: 'success', exitCode: 0, signal: null };
+  };
+  const logger = { log() {}, error() {} };
+
+  const viewer = await runViewerBuild({
+    toolingRoot: '/workspace/tooling', config, environment, commandRunner, logger,
+  });
+  const admin = await runAdminBuild({
+    toolingRoot: '/workspace/tooling', config, environment, commandRunner, logger,
+  });
+
+  assert.deepEqual(calls, [
+    {
+      executable: 'npm', args: ['run', 'build'], cwd: '/workspace/viewer-fixture',
+      env: environment, stdio: 'inherit', signal: undefined,
+    },
+    {
+      executable: 'npm', args: ['run', 'build'], cwd: '/workspace/admin-fixture',
+      env: environment, stdio: 'inherit', signal: undefined,
+    },
+  ]);
+  assert.equal(viewer.repositoryRoot, '/workspace/viewer-fixture');
+  assert.equal(admin.repositoryRoot, '/workspace/admin-fixture');
+});
+
+test('importing build wrappers does not run either build', () => {
+  assert.equal(typeof runViewerBuild, 'function');
+  assert.equal(typeof runAdminBuild, 'function');
+});
+
+test('standalone build wrappers preserve child exit status and distinguish launch failure', async () => {
+  const logger = { log() {}, error() {} };
+  const config = { repos: { viewer: '../viewer', admin: '../admin' } };
+  const failed = new CommandExecutionError('build failed', {
+    kind: 'exit', exitCode: 9, signal: null,
+  });
+  const launch = new CommandExecutionError('launch failed', {
+    kind: 'spawn', exitCode: null, signal: null,
+  });
+  assert.equal(await runViewerBuildCli({
+    toolingRoot: '/workspace/tooling', config, logger,
+    commandRunner: async () => { throw failed; },
+  }), 9);
+  assert.equal(await runAdminBuildCli({
+    toolingRoot: '/workspace/tooling', config, logger,
+    commandRunner: async () => { throw launch; },
+  }), 1);
 });

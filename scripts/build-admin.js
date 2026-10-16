@@ -1,21 +1,43 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runCommand } from './lib/command-runner.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const toolingRoot = path.resolve(__dirname, '..');
-const config = JSON.parse(fs.readFileSync(path.resolve(toolingRoot, 'config/paths.json'), 'utf8'));
+const scriptPath = fileURLToPath(import.meta.url);
+const defaultToolingRoot = path.resolve(path.dirname(scriptPath), '..');
 
-const adminRoot = path.resolve(toolingRoot, config.repos.admin);
+function loadConfig(toolingRoot) {
+  return JSON.parse(fs.readFileSync(path.join(toolingRoot, 'config/paths.json'), 'utf8'));
+}
 
-console.log('Building FreeTV Admin Dashboard...');
-const build = spawn('npm', ['run', 'build'], { cwd: adminRoot, stdio: 'inherit' });
+export async function runAdminBuild({
+  toolingRoot = defaultToolingRoot,
+  config = loadConfig(toolingRoot),
+  environment = process.env,
+  signal,
+  commandRunner = runCommand,
+  logger = console,
+} = {}) {
+  const adminRoot = path.resolve(toolingRoot, config.repos.admin);
+  logger.log('Building FreeTV Admin Dashboard...');
+  const result = await commandRunner({
+    executable: 'npm', args: ['run', 'build'], cwd: adminRoot,
+    env: environment, stdio: 'inherit', signal,
+  });
+  logger.log('FreeTV Admin Dashboard build complete.');
+  return { ...result, repositoryRoot: adminRoot };
+}
 
-build.on('exit', (code) => {
-  if (code !== 0) {
-    process.exit(code ?? 1);
+export async function runAdminBuildCli(options = {}) {
+  try {
+    await runAdminBuild(options);
+    return 0;
+  } catch (error) {
+    (options.logger ?? console).error(`FreeTV Admin Dashboard build failed.\n\n${error.message}`);
+    return error.kind === 'exit' ? error.exitCode : 1;
   }
-  console.log('FreeTV Admin Dashboard build complete.');
-});
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  process.exitCode = await runAdminBuildCli();
+}
