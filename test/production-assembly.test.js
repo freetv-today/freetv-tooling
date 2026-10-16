@@ -123,9 +123,11 @@ function createWorkspace(t) {
 }
 
 function transactionPaths(fixture, id) {
-  const stem = `.freetv-tooling-${path.basename(fixture.outputRoot)}-assembly-${id}`;
+  const prefix = `.freetv-tooling-${path.basename(fixture.outputRoot)}-assembly-`;
+  const stem = `${prefix}${id}`;
   const parent = path.dirname(fixture.outputRoot);
   return {
+    claimPath: path.join(parent, `${prefix}claim`),
     candidatePath: path.join(parent, `${stem}.candidate`),
     backupPath: path.join(parent, `${stem}.backup`),
     markerPath: path.join(parent, `${stem}.transaction.json`),
@@ -169,6 +171,21 @@ function fileSystemFailingRename(predicate, message) {
   });
 }
 
+function fileSystemFailingRemoval(predicate, removeBeforeFailure, message) {
+  return new Proxy(fs, {
+    get(target, property) {
+      if (property !== 'rmSync') return target[property];
+      return (removedPath, options) => {
+        if (predicate(removedPath)) {
+          removeBeforeFailure(removedPath);
+          throw new Error(message);
+        }
+        return target.rmSync(removedPath, options);
+      };
+    },
+  });
+}
+
 test('valid production assembly succeeds', (t) => {
   const fixture = createWorkspace(t);
   const result = assembleProduction(fixture);
@@ -204,6 +221,36 @@ test('existing production output is replaced transactionally and leaves no artif
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'old-release-sentinel.txt')), false);
   assert.match(fs.readFileSync(path.join(fixture.outputRoot, 'public/index.html'), 'utf8'), /new release/);
   assert.equal(result.paths.outputRoot, fixture.outputRoot);
+  assert.deepEqual(transactionArtifacts(fixture), []);
+});
+
+test('an exclusive claim deterministically rejects a concurrent assembly for the same output', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  let concurrentError;
+  let attempted = false;
+
+  const result = assembleProduction({
+    ...fixture,
+    transactionId: '010101010101010101010101',
+    transactionHooks: {
+      afterCandidateCopy() {
+        if (attempted) return;
+        attempted = true;
+        try {
+          assembleProduction({ ...fixture, transactionId: '020202020202020202020202' });
+        } catch (error) {
+          concurrentError = error;
+        }
+        assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+      },
+    },
+  });
+
+  assert.match(concurrentError?.message ?? '', /already claimed or requires manual recovery/);
+  assert.equal(result.paths.outputRoot, fixture.outputRoot);
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/index.html')), true);
   assert.deepEqual(transactionArtifacts(fixture), []);
 });
 
@@ -341,9 +388,40 @@ test('backup cleanup failure keeps the valid new output and retains the previous
   );
   assert.deepEqual(treeSnapshot(transaction.backupPath), before);
   assert.equal(fs.existsSync(transaction.markerPath), true);
+  assert.equal(fs.existsSync(transaction.claimPath), true);
   assert.equal(fs.existsSync(transaction.candidatePath), false);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/index.html')), true);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'keep.txt')), false);
+});
+
+test('partial backup deletion is reported without claiming the previous backup is intact', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'removed-during-cleanup.txt', 'old file one');
+  writeFile(fixture.outputRoot, 'still-recoverable.txt', 'old file two');
+  const transaction = transactionPaths(fixture, '030303030303030303030303');
+  const transactionFileSystem = fileSystemFailingRemoval(
+    (removedPath) => removedPath === transaction.backupPath,
+    (backupPath) => fs.rmSync(path.join(backupPath, 'removed-during-cleanup.txt')),
+    'injected partial backup deletion failure',
+  );
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: '030303030303030303030303',
+      transactionFileSystem,
+    }),
+    (error) => error.message.includes('new output is valid')
+      && error.message.includes('may have partially removed the previous backup')
+      && error.message.includes(transaction.backupPath)
+      && error.message.includes(transaction.markerPath)
+      && error.message.includes(transaction.claimPath),
+  );
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/index.html')), true);
+  assert.equal(fs.existsSync(path.join(transaction.backupPath, 'removed-during-cleanup.txt')), false);
+  assert.equal(fs.readFileSync(path.join(transaction.backupPath, 'still-recoverable.txt'), 'utf8'), 'old file two');
+  assert.equal(fs.existsSync(transaction.markerPath), true);
+  assert.equal(fs.existsSync(transaction.claimPath), true);
 });
 
 test('an existing candidate-name collision is refused without modification or automatic cleanup', (t) => {
@@ -414,7 +492,7 @@ test('cleanup requires an exact valid ownership marker and never deletes on pref
         },
       },
     }),
-    /candidate cleanup failed and owned state was retained.*ownership marker does not match this operation/,
+    /candidate or transaction cleanup failed.*ownership marker does not match this operation/,
   );
   assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
   assert.equal(fs.existsSync(transaction.candidatePath), true);

@@ -494,58 +494,106 @@ function createTransaction(paths, transactionId, fileSystem) {
   if (fileSystem.lstatSync(parent).isSymbolicLink() || !fileSystem.lstatSync(parent).isDirectory()) {
     throw new Error(`Production output parent is unsafe: ${parent}`);
   }
-  const existing = fileSystem.readdirSync(parent).filter((name) => name.startsWith(prefix));
-  if (existing.length > 0) {
-    throw new Error(
-      `Existing production assembly transaction requires manual inspection: ${existing.map((name) => path.join(parent, name)).join(', ')}`,
-    );
-  }
-
   const stem = `${prefix}${transactionId}`;
   const transaction = {
     contract: ASSEMBLY_TRANSACTION_CONTRACT,
     id: transactionId,
     outputRoot: paths.outputRoot,
+    claimPath: path.join(parent, `${prefix}claim`),
     candidatePath: path.join(parent, `${stem}.candidate`),
     backupPath: path.join(parent, `${stem}.backup`),
     markerPath: path.join(parent, `${stem}.transaction.json`),
   };
-  for (const candidate of [transaction.candidatePath, transaction.backupPath, transaction.markerPath]) {
+  for (const candidate of [
+    transaction.claimPath,
+    transaction.candidatePath,
+    transaction.backupPath,
+    transaction.markerPath,
+  ]) {
     if (path.dirname(candidate) !== parent || pathEntryExists(candidate, fileSystem)) {
+      if (candidate === transaction.claimPath) {
+        throw new Error(`Production assembly is already claimed or requires manual recovery: ${candidate}`);
+      }
       throw new Error(`Production assembly transaction path collision: ${candidate}`);
     }
   }
-  fileSystem.writeFileSync(
-    transaction.markerPath,
-    `${JSON.stringify(transaction, null, 2)}\n`,
-    { encoding: 'utf8', flag: 'wx', mode: 0o600 },
-  );
   try {
+    fileSystem.writeFileSync(
+      transaction.claimPath,
+      `${JSON.stringify(transaction, null, 2)}\n`,
+      { encoding: 'utf8', flag: 'wx', mode: 0o600 },
+    );
+  } catch (error) {
+    if (error.code === 'EEXIST') {
+      throw new Error(
+        `Production assembly is already claimed or requires manual recovery: ${transaction.claimPath}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+
+  const existing = fileSystem.readdirSync(parent).filter(
+    (name) => name.startsWith(prefix) && path.join(parent, name) !== transaction.claimPath,
+  );
+  if (existing.length > 0) {
+    throw new Error(
+      `Existing production assembly transaction requires manual inspection; claim retained at ${transaction.claimPath}: ${existing.map((name) => path.join(parent, name)).join(', ')}`,
+    );
+  }
+
+  let markerCreated = false;
+  try {
+    fileSystem.writeFileSync(
+      transaction.markerPath,
+      `${JSON.stringify(transaction, null, 2)}\n`,
+      { encoding: 'utf8', flag: 'wx', mode: 0o600 },
+    );
+    markerCreated = true;
     fileSystem.mkdirSync(transaction.candidatePath, { mode: 0o700 });
   } catch (error) {
-    try { fileSystem.unlinkSync(transaction.markerPath); } catch {}
+    let cleanupError;
+    try {
+      if (markerCreated) fileSystem.unlinkSync(transaction.markerPath);
+      fileSystem.unlinkSync(transaction.claimPath);
+    } catch (caught) {
+      cleanupError = caught;
+    }
+    if (cleanupError) {
+      throw new Error(
+        `Production assembly transaction setup failed and its exclusive claim was retained at ${transaction.claimPath}: ${error.message}; cleanup failed: ${cleanupError.message}`,
+        { cause: error },
+      );
+    }
     throw error;
   }
   return transaction;
 }
 
-function assertOwnedTransactionPath(transaction, target, fileSystem) {
-  if (!pathEntryExists(transaction.markerPath, fileSystem)
-    || fileSystem.lstatSync(transaction.markerPath).isSymbolicLink()
-    || !fileSystem.lstatSync(transaction.markerPath).isFile()) {
-    throw new Error(`Production assembly ownership marker is missing or unsafe: ${transaction.markerPath}`);
+function readOwnedTransactionRecord(transaction, recordPath, label, fileSystem) {
+  if (!pathEntryExists(recordPath, fileSystem)
+    || fileSystem.lstatSync(recordPath).isSymbolicLink()
+    || !fileSystem.lstatSync(recordPath).isFile()) {
+    throw new Error(`Production assembly ${label} is missing or unsafe: ${recordPath}`);
   }
   let recorded;
   try {
-    recorded = JSON.parse(fileSystem.readFileSync(transaction.markerPath, 'utf8'));
+    recorded = JSON.parse(fileSystem.readFileSync(recordPath, 'utf8'));
   } catch (error) {
-    throw new Error(`Production assembly ownership marker is invalid: ${transaction.markerPath}: ${error.message}`);
+    throw new Error(`Production assembly ${label} is invalid: ${recordPath}: ${error.message}`);
   }
-  for (const key of ['contract', 'id', 'outputRoot', 'candidatePath', 'backupPath', 'markerPath']) {
+  for (const key of [
+    'contract', 'id', 'outputRoot', 'claimPath', 'candidatePath', 'backupPath', 'markerPath',
+  ]) {
     if (recorded[key] !== transaction[key]) {
-      throw new Error(`Production assembly ownership marker does not match this operation: ${transaction.markerPath}`);
+      throw new Error(`Production assembly ${label} does not match this operation: ${recordPath}`);
     }
   }
+}
+
+function assertOwnedTransactionPath(transaction, target, fileSystem) {
+  readOwnedTransactionRecord(transaction, transaction.claimPath, 'ownership claim', fileSystem);
+  readOwnedTransactionRecord(transaction, transaction.markerPath, 'ownership marker', fileSystem);
   if (![transaction.candidatePath, transaction.backupPath].includes(target)
     || path.dirname(target) !== path.dirname(transaction.outputRoot)) {
     throw new Error(`Refusing to clean an unowned production assembly path: ${target}`);
@@ -562,7 +610,10 @@ function removeOwnedTransactionPath(transaction, target, fileSystem) {
 }
 
 function finishTransaction(transaction, fileSystem) {
+  readOwnedTransactionRecord(transaction, transaction.claimPath, 'ownership claim', fileSystem);
+  readOwnedTransactionRecord(transaction, transaction.markerPath, 'ownership marker', fileSystem);
   fileSystem.unlinkSync(transaction.markerPath);
+  fileSystem.unlinkSync(transaction.claimPath);
 }
 
 function candidatePaths(paths, candidatePath) {
@@ -577,7 +628,7 @@ function cleanCandidateAfterFailure(transaction, fileSystem, originalError, labe
     finishTransaction(transaction, fileSystem);
   } catch (cleanupError) {
     throw new Error(
-      `${label}: ${originalError.message}; candidate cleanup failed and owned state was retained at ${transaction.candidatePath} with marker ${transaction.markerPath}: ${cleanupError.message}`,
+      `${label}: ${originalError.message}; candidate or transaction cleanup failed; inspect any remaining state at candidate ${transaction.candidatePath}, marker ${transaction.markerPath}, and claim ${transaction.claimPath}: ${cleanupError.message}`,
       { cause: originalError },
     );
   }
@@ -687,7 +738,7 @@ export function assembleProduction({
         );
       }
       throw new Error(
-        `Production assembly backup state is ambiguous; manual recovery required. Output: ${paths.outputRoot}; backup: ${transaction.backupPath}; candidate: ${transaction.candidatePath}; marker: ${transaction.markerPath}: ${error.message}`,
+        `Production assembly backup state is ambiguous; manual recovery required. Output: ${paths.outputRoot}; backup: ${transaction.backupPath}; candidate: ${transaction.candidatePath}; marker: ${transaction.markerPath}; claim: ${transaction.claimPath}: ${error.message}`,
         { cause: error },
       );
     }
@@ -699,7 +750,7 @@ export function assembleProduction({
   } catch (promotionError) {
     if (!hadPreviousOutput) {
       throw new Error(
-        `Production assembly candidate promotion failed; candidate retained at ${transaction.candidatePath} with marker ${transaction.markerPath}: ${promotionError.message}`,
+        `Production assembly candidate promotion failed; candidate retained at ${transaction.candidatePath} with marker ${transaction.markerPath} and claim ${transaction.claimPath}: ${promotionError.message}`,
         { cause: promotionError },
       );
     }
@@ -711,7 +762,7 @@ export function assembleProduction({
       transactionFileSystem.renameSync(transaction.backupPath, paths.outputRoot);
     } catch (restoreError) {
       throw new Error(
-        `Production assembly promotion failed and recovery is incomplete; previous output backup retained at ${transaction.backupPath}; candidate retained at ${transaction.candidatePath}; marker retained at ${transaction.markerPath}: ${promotionError.message}; restore failed: ${restoreError.message}`,
+        `Production assembly promotion failed and recovery is incomplete; previous output backup retained at ${transaction.backupPath}; candidate retained at ${transaction.candidatePath}; marker retained at ${transaction.markerPath}; claim retained at ${transaction.claimPath}: ${promotionError.message}; restore failed: ${restoreError.message}`,
         { cause: promotionError },
       );
     }
@@ -722,7 +773,7 @@ export function assembleProduction({
       finishTransaction(transaction, transactionFileSystem);
     } catch (cleanupError) {
       throw new Error(
-        `Production assembly promotion failed and the previous output was restored, but candidate cleanup failed; retained candidate ${transaction.candidatePath} and marker ${transaction.markerPath}: ${cleanupError.message}`,
+        `Production assembly promotion failed and the previous output was restored, but transaction cleanup failed; inspect any remaining candidate or diagnostics at ${transaction.candidatePath}, ${transaction.markerPath}, and ${transaction.claimPath}: ${cleanupError.message}`,
         { cause: promotionError },
       );
     }
@@ -738,7 +789,7 @@ export function assembleProduction({
       removeOwnedTransactionPath(transaction, transaction.backupPath, transactionFileSystem);
     } catch (cleanupError) {
       throw new Error(
-        `Production assembly succeeded and the new output is valid, but backup cleanup failed; previous output retained at ${transaction.backupPath} with marker ${transaction.markerPath}: ${cleanupError.message}`,
+        `Production assembly succeeded and the new output is valid, but backup cleanup failed and may have partially removed the previous backup; any remaining backup state is retained at ${transaction.backupPath}; diagnostics and exclusive claim are retained at ${transaction.markerPath} and ${transaction.claimPath}: ${cleanupError.message}`,
         { cause: cleanupError },
       );
     }
@@ -747,7 +798,7 @@ export function assembleProduction({
     finishTransaction(transaction, transactionFileSystem);
   } catch (cleanupError) {
     throw new Error(
-      `Production assembly succeeded and the new output is valid, but transaction marker cleanup failed; marker retained at ${transaction.markerPath}: ${cleanupError.message}`,
+      `Production assembly succeeded and the new output is valid, but transaction cleanup failed; retained claim or diagnostics require manual inspection at ${transaction.claimPath} and ${transaction.markerPath}: ${cleanupError.message}`,
       { cause: cleanupError },
     );
   }
