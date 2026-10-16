@@ -50,13 +50,18 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   if (process.exitCode !== 1) {
     console.log(`${label} starting on port ${port}.`);
     const dev = spawnAdminVite();
+    let finished = false;
 
     dev.on('error', (error) => {
+      if (finished) return;
+      finished = true;
       console.error(`${label} could not start.\n\n${error.message}`);
       process.exitCode = 1;
     });
-    dev.on('exit', (code) => {
-      process.exitCode = code ?? 1;
+    dev.on('exit', (code, signal) => {
+      if (finished) return;
+      finished = true;
+      process.exitCode = signal ? 1 : (code ?? 1);
     });
   }
 }

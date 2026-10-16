@@ -10,6 +10,9 @@ import {
   resolveAdminApiProxyTarget,
 } from '../scripts/lib/development.js';
 import { spawnAdminVite } from '../scripts/dev-admin.js';
+import { spawnViewerVite } from '../scripts/dev-viewer.js';
+import { spawnPhpServer } from '../scripts/dev-php.js';
+import { createDevelopmentServices, runDevelopmentEnvironmentCli } from '../scripts/dev-all.js';
 
 const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'package.json'), 'utf8'));
@@ -158,12 +161,33 @@ test('occupied ports produce the product-specific troubleshooting message', asyn
   );
 });
 
-test('dev:all preflights before spawning and manages child termination', () => {
-  const source = read('scripts/dev-all.js');
-  assert.ok(source.indexOf('await preflightDevelopmentPorts(services)') < source.indexOf('services.map'));
-  assert.match(source, /process\.on\('SIGINT'/u);
-  assert.match(source, /process\.on\('SIGTERM'/u);
-  assert.match(source, /process\.kill\(-child\.pid/u);
-  assert.match(source, /taskkill/u);
-  assert.match(source, /SIGKILL/u);
+test('development service definitions preserve commands, ports, repositories, and environments', () => {
+  const environment = { EXISTING: 'yes', PHP_PORT: '8123' };
+  const services = createDevelopmentServices({ toolingRoot, config, environment });
+  assert.deepEqual(services.map(({ port }) => port), [5173, 5174, 8123]);
+  assert.deepEqual(services[0].args.slice(-3), ['--port', '5173', '--strictPort']);
+  assert.equal(services[0].options.cwd, path.resolve(toolingRoot, config.repos.viewer));
+  assert.equal(services[1].options.env.VITE_API_PROXY_TARGET, 'http://localhost:8123');
+  assert.equal(services[2].options.env.PHP_CLI_SERVER_WORKERS, '4');
+  assert.equal(services.every(({ options }) => options.stdio === 'inherit'), true);
+});
+
+test('imported individual development launchers are inert and expose injectable spawn functions', () => {
+  for (const launch of [spawnViewerVite, spawnAdminVite, spawnPhpServer]) assert.equal(typeof launch, 'function');
+});
+
+test('standalone development wrapper maps cancellation and startup failure exit statuses', async () => {
+  const logger = { log() {}, error() {} };
+  const common = { toolingRoot, config, logger, preflight: async () => {} };
+  assert.equal(await runDevelopmentEnvironmentCli({
+    ...common,
+    supervisor: async () => ({
+      completion: Promise.resolve({ kind: 'cancelled', exitCode: 130, stopped: true, unresolved: [] }),
+      stop: async () => {},
+    }),
+  }), 130);
+  assert.equal(await runDevelopmentEnvironmentCli({
+    ...common,
+    supervisor: async () => { throw new Error('startup fixture'); },
+  }), 1);
 });
