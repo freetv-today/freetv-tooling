@@ -9,6 +9,7 @@ import {
   RELEASE_PACKAGES,
   buildReleasePackages,
   isSafePackagePath,
+  promoteReleasePackages,
   validatePackageDirectory,
   validateReleaseArchive,
 } from '../scripts/lib/release-packages.js';
@@ -147,6 +148,37 @@ function unzip(archivePath, destination) {
   assert.equal(result.status, 0, result.stderr);
 }
 
+async function promotionFixture(t) {
+  const expected = fixture(t);
+  const built = await buildReleasePackages({
+    toolingRoot: expected.toolingRoot,
+    config: expected.config,
+    runId: '101010101010',
+    clock: () => new Date(GENERATED_AT),
+    logger: { log() {} },
+  });
+  const inputs = path.join(expected.root, 'promotion-inputs');
+  const packages = ['sample', 'official'].map((dataset) => {
+    const archivePath = path.join(inputs, RELEASE_PACKAGES[dataset].archive);
+    fs.mkdirSync(inputs, { recursive: true });
+    fs.copyFileSync(built[dataset].archivePath, archivePath);
+    return { dataset, archivePath, expectedCounts: built[dataset].expectedCounts };
+  });
+  const releasesRoot = path.join(expected.dataRoot, 'releases');
+  const targets = Object.fromEntries(['sample', 'official'].map((dataset) => [
+    dataset, path.join(releasesRoot, RELEASE_PACKAGES[dataset].archive),
+  ]));
+  write(targets.sample, 'old sample');
+  write(targets.official, 'old official');
+  return { ...expected, packages, releasesRoot, targets };
+}
+
+function fsWith(overrides) {
+  return new Proxy(fs, {
+    get(target, property) { return overrides[property] ?? target[property]; },
+  });
+}
+
 test('builds and independently validates root-level Sample and Official release ZIPs', async (t) => {
   const expected = fixture(t);
   const result = await buildReleasePackages({
@@ -259,4 +291,161 @@ test('a generation failure preserves existing release ZIPs', async (t) => {
     fs.existsSync(path.join(expected.toolingRoot, 'staging/release-packages-fedcba654321')),
     false,
   );
+});
+
+test('release promotion replaces and validates both existing archives without transaction debris', async (t) => {
+  const expected = await promotionFixture(t);
+  const result = promoteReleasePackages({
+    packages: expected.packages,
+    dataRoot: expected.dataRoot,
+    runId: '202020202020',
+  });
+  for (const dataset of ['sample', 'official']) {
+    assert.equal(result[dataset], expected.targets[dataset]);
+    validateReleaseArchive({
+      archivePath: result[dataset],
+      expectedDataset: dataset,
+      extractionRoot: path.join(expected.root, `promoted-${dataset}`),
+      canonicalCounts: expected.packages.find((item) => item.dataset === dataset).expectedCounts,
+    });
+  }
+  assert.equal(fs.readdirSync(expected.releasesRoot).some((name) => name.startsWith('.freetv-release-')), false);
+});
+
+test('release preparation failure preserves previous archives and removes its transaction', async (t) => {
+  const expected = await promotionFixture(t);
+  let copies = 0;
+  const fileSystem = fsWith({
+    copyFileSync(source, destination) {
+      copies += 1;
+      if (copies === 2) throw new Error('injected preparation copy failure');
+      return fs.copyFileSync(source, destination);
+    },
+  });
+  assert.throws(
+    () => promoteReleasePackages({
+      packages: expected.packages, dataRoot: expected.dataRoot, runId: '303030303030', fileSystem,
+    }),
+    /failed and was rolled back.*injected preparation copy failure/su,
+  );
+  assert.equal(fs.readFileSync(expected.targets.sample, 'utf8'), 'old sample');
+  assert.equal(fs.readFileSync(expected.targets.official, 'utf8'), 'old official');
+  assert.equal(fs.existsSync(path.join(expected.releasesRoot, '.freetv-release-303030303030')), false);
+});
+
+test('release backup failure restores previous archives and cleans transaction state', async (t) => {
+  const expected = await promotionFixture(t);
+  const transactionRoot = path.join(expected.releasesRoot, '.freetv-release-404040404040');
+  const fileSystem = fsWith({
+    renameSync(source, destination) {
+      if (source === expected.targets.sample && destination.startsWith(path.join(transactionRoot, 'old'))) {
+        throw new Error('injected backup failure');
+      }
+      return fs.renameSync(source, destination);
+    },
+  });
+  assert.throws(
+    () => promoteReleasePackages({
+      packages: expected.packages, dataRoot: expected.dataRoot, runId: '404040404040', fileSystem,
+    }),
+    /failed and was rolled back.*injected backup failure/su,
+  );
+  assert.equal(fs.readFileSync(expected.targets.sample, 'utf8'), 'old sample');
+  assert.equal(fs.readFileSync(expected.targets.official, 'utf8'), 'old official');
+  assert.equal(fs.existsSync(transactionRoot), false);
+});
+
+test('failure installing the second release restores both previous archives byte-for-byte', async (t) => {
+  const expected = await promotionFixture(t);
+  const transactionRoot = path.join(expected.releasesRoot, '.freetv-release-505050505050');
+  const secondPrepared = path.join(transactionRoot, 'new', RELEASE_PACKAGES.official.archive);
+  const fileSystem = fsWith({
+    renameSync(source, destination) {
+      if (source === secondPrepared && destination === expected.targets.official) {
+        throw new Error('injected second promotion failure');
+      }
+      return fs.renameSync(source, destination);
+    },
+  });
+  assert.throws(
+    () => promoteReleasePackages({
+      packages: expected.packages, dataRoot: expected.dataRoot, runId: '505050505050', fileSystem,
+    }),
+    /failed and was rolled back.*injected second promotion failure/su,
+  );
+  assert.equal(fs.readFileSync(expected.targets.sample, 'utf8'), 'old sample');
+  assert.equal(fs.readFileSync(expected.targets.official, 'utf8'), 'old official');
+  assert.equal(fs.existsSync(transactionRoot), false);
+});
+
+test('incomplete release rollback retains and reports recovery state and blocks a later run', async (t) => {
+  const expected = await promotionFixture(t);
+  const runId = '606060606060';
+  const transactionRoot = path.join(expected.releasesRoot, `.freetv-release-${runId}`);
+  const officialPrepared = path.join(transactionRoot, 'new', RELEASE_PACKAGES.official.archive);
+  let promotionFailed = false;
+  const fileSystem = fsWith({
+    renameSync(source, destination) {
+      if (source === officialPrepared && destination === expected.targets.official) {
+        promotionFailed = true;
+        throw new Error('injected promotion failure');
+      }
+      if (promotionFailed && source === path.join(transactionRoot, 'old', RELEASE_PACKAGES.sample.archive)) {
+        throw new Error('injected rollback failure');
+      }
+      return fs.renameSync(source, destination);
+    },
+  });
+  assert.throws(
+    () => promoteReleasePackages({ packages: expected.packages, dataRoot: expected.dataRoot, runId, fileSystem }),
+    (error) => error.message.includes('rollback was incomplete') && error.message.includes(transactionRoot),
+  );
+  assert.equal(fs.existsSync(transactionRoot), true);
+  assert.throws(
+    () => promoteReleasePackages({
+      packages: expected.packages, dataRoot: expected.dataRoot, runId: '616161616161',
+    }),
+    /Unresolved release transaction requires inspection/,
+  );
+});
+
+test('release cleanup failure preserves valid new archives and warns recovery state may be partial', async (t) => {
+  const expected = await promotionFixture(t);
+  const transactionRoot = path.join(expected.releasesRoot, '.freetv-release-707070707070');
+  const fileSystem = fsWith({
+    rmSync(removedPath, options) {
+      if (removedPath === transactionRoot) {
+        fs.rmSync(path.join(transactionRoot, 'old', RELEASE_PACKAGES.sample.archive));
+        throw new Error('injected partial cleanup failure');
+      }
+      return fs.rmSync(removedPath, options);
+    },
+  });
+  assert.throws(
+    () => promoteReleasePackages({
+      packages: expected.packages, dataRoot: expected.dataRoot, runId: '707070707070', fileSystem,
+    }),
+    /packages were promoted.*cleanup failed and may have partially removed recovery state/su,
+  );
+  for (const item of expected.packages) {
+    validateReleaseArchive({
+      archivePath: expected.targets[item.dataset],
+      expectedDataset: item.dataset,
+      extractionRoot: path.join(expected.root, `cleanup-${item.dataset}`),
+      canonicalCounts: item.expectedCounts,
+    });
+  }
+  assert.equal(fs.existsSync(transactionRoot), true);
+});
+
+test('a symlinked release destination is rejected without touching its target', { skip: process.platform === 'win32' }, (t) => {
+  const expected = fixture(t);
+  const outside = path.join(expected.root, 'outside-releases');
+  write(path.join(outside, 'keep.txt'), 'retain me');
+  fs.symlinkSync(outside, path.join(expected.dataRoot, 'releases'), 'dir');
+  assert.throws(
+    () => promoteReleasePackages({ packages: [], dataRoot: expected.dataRoot, runId: '808080808080' }),
+    /releases directory is missing or unsafe/,
+  );
+  assert.equal(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8'), 'retain me');
 });
