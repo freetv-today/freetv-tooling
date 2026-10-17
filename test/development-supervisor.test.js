@@ -94,6 +94,38 @@ test('asynchronous spawn error stops siblings once despite a later exit', async 
   assert.equal(signals.length, 3);
 });
 
+test('spawn error followed only by close confirms the failed child stopped and preserves the original reason', async () => {
+  const children = services().map((_, index) => child(800 + index));
+  children[1].pid = undefined;
+  const signals = [];
+  let index = 0;
+  const session = await startDevelopmentSupervisor({
+    services: services(), preflight: async () => {}, spawnProcess: () => children[index++],
+    waitForTimeout: async () => {},
+    signalTree(target, signal) {
+      if (!target.pid) return { requested: false, error: 'child PID is unavailable' };
+      signals.push([target.pid, signal]);
+      target.emit('exit', null, signal);
+      return { requested: true };
+    },
+  });
+  const originalError = new Error('async spawn fixture');
+  children[1].emit('error', originalError);
+  children[1].emit('close', -2, null);
+  const result = await session.completion;
+
+  assert.equal(result.kind, 'spawn');
+  assert.equal(result.service, 'Admin');
+  assert.equal(result.error, originalError);
+  assert.equal(result.stopped, true);
+  assert.deepEqual(result.unresolved, []);
+  assert.deepEqual(signals.map(([pid]) => pid), [800, 802]);
+
+  children[1].emit('error', new Error('late duplicate error'));
+  children[1].emit('exit', 9, null);
+  assert.equal(await session.completion, result);
+});
+
 for (const [code, signal] of [[7, null], [0, null], [null, 'SIGABRT']]) {
   test(`unexpected service exit (${code ?? signal}) stops its siblings`, async () => {
     const children = services().map((_, index) => child(400 + index));

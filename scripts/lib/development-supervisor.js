@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 
 function childStopped(child, state) {
-  return state.exited || child.exitCode !== null || child.signalCode !== null;
+  return state.stopped || child.exitCode !== null || child.signalCode !== null;
 }
 
 export function signalProcessTree(child, signal, {
@@ -98,20 +98,25 @@ export async function startDevelopmentSupervisor({
       break;
     }
     let resolveDone;
-    const state = { exited: false, done: new Promise((resolve) => { resolveDone = resolve; }) };
+    const state = { stopped: false, done: new Promise((resolve) => { resolveDone = resolve; }) };
     records.push({ service, child, state });
     const fail = (reason) => { void stop(reason); };
+    const confirmStopped = () => {
+      if (state.stopped) return;
+      state.stopped = true;
+      resolveDone();
+    };
     child.on('error', (error) => fail({
       kind: 'spawn', service: service.label, error, exitCode: 1,
     }));
     child.once('exit', (code, signal) => {
-      state.exited = true;
-      resolveDone();
+      confirmStopped();
       if (!shutdownStarted) fail({
         kind: 'unexpected-exit', service: service.label, code, signal,
         exitCode: code && code !== 0 ? code : 1,
       });
     });
+    child.once('close', confirmStopped);
   }
 
   return { services, records, completion, stop };
