@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import fsExtra from 'fs-extra';
 import {
   cleanViewerDevelopmentData,
   installViewerDevelopmentData,
@@ -52,6 +53,34 @@ function treeSnapshot(root) {
   }
   visit(root);
   return entries;
+}
+
+function installedSnapshot(publicRoot) {
+  return {
+    config: fs.readFileSync(path.join(publicRoot, 'config.json'), 'utf8'),
+    playlists: treeSnapshot(path.join(publicRoot, 'playlists')),
+    thumbs: treeSnapshot(path.join(publicRoot, 'thumbs')),
+    marker: fs.readFileSync(path.join(publicRoot, '.freetv-tooling-development-data.json'), 'utf8'),
+  };
+}
+
+function withTransactionCleanupFailure(transactionRoot) {
+  return new Proxy(fsExtra, {
+    get(target, property) {
+      if (property === 'removeSync') {
+        return (removedPath) => {
+          if (removedPath === transactionRoot) {
+            const [firstEntry] = target.readdirSync(transactionRoot);
+            if (firstEntry) target.removeSync(path.join(transactionRoot, firstEntry));
+            throw new Error('injected transaction cleanup failure');
+          }
+          return target.removeSync(removedPath);
+        };
+      }
+      const value = target[property];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
 }
 
 test('install copies all three configured Data artifacts into Viewer public', async (t) => {
@@ -216,5 +245,96 @@ test('symlinked managed destination is refused without affecting its target', { 
     /destination is unsafe or ambiguous/,
   );
   assert.equal(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8'), 'keep');
+});
+
+test('dangling managed destination is refused by install and cleanup without affecting protected content', { skip: process.platform === 'win32' }, async (t) => {
+  const expected = fixture(t);
+  const missingTarget = path.join(expected.root, 'missing-playlists-target');
+  const destination = path.join(expected.publicRoot, 'playlists');
+  write(path.join(expected.publicRoot, 'index.html'), '<main>protected</main>');
+  fs.symlinkSync(missingTarget, destination, 'dir');
+
+  await assert.rejects(
+    installViewerDevelopmentData({ toolingRoot: expected.toolingRoot }),
+    /destination is unsafe or ambiguous/u,
+  );
+  await assert.rejects(
+    cleanViewerDevelopmentData({ toolingRoot: expected.toolingRoot }),
+    /destination is unsafe or ambiguous/u,
+  );
+
+  assert.equal(fs.lstatSync(destination).isSymbolicLink(), true);
+  assert.equal(fs.existsSync(missingTarget), false);
+  assert.equal(fs.readFileSync(path.join(expected.publicRoot, 'index.html'), 'utf8'), '<main>protected</main>');
+});
+
+test('dangling ownership marker is refused by install and cleanup without changing managed content', { skip: process.platform === 'win32' }, async (t) => {
+  const expected = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: expected.toolingRoot, runId: '888888888888' });
+  const before = installedSnapshot(expected.publicRoot);
+  const marker = path.join(expected.publicRoot, '.freetv-tooling-development-data.json');
+  const missingTarget = path.join(expected.root, 'missing-ownership-marker');
+  fs.unlinkSync(marker);
+  fs.symlinkSync(missingTarget, marker, 'file');
+
+  await assert.rejects(
+    installViewerDevelopmentData({ toolingRoot: expected.toolingRoot }),
+    /ownership marker must not be a symbolic link/u,
+  );
+  await assert.rejects(
+    cleanViewerDevelopmentData({ toolingRoot: expected.toolingRoot }),
+    /ownership marker must not be a symbolic link/u,
+  );
+
+  assert.equal(fs.lstatSync(marker).isSymbolicLink(), true);
+  assert.equal(fs.existsSync(missingTarget), false);
+  assert.deepEqual(treeSnapshot(path.join(expected.publicRoot, 'playlists')), before.playlists);
+  assert.deepEqual(treeSnapshot(path.join(expected.publicRoot, 'thumbs')), before.thumbs);
+  assert.equal(fs.readFileSync(path.join(expected.publicRoot, 'config.json'), 'utf8'), before.config);
+});
+
+test('candidate preparation preserves its original error when transaction cleanup fails', async (t) => {
+  const expected = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: expected.toolingRoot, runId: '999999999999' });
+  const before = installedSnapshot(expected.publicRoot);
+  const transactionRoot = path.join(expected.publicRoot, '.freetv-tooling-development-data-aaaaaaaaaaaa');
+
+  await assert.rejects(installViewerDevelopmentData({
+    toolingRoot: expected.toolingRoot,
+    runId: 'aaaaaaaaaaaa',
+    fileSystem: withTransactionCleanupFailure(transactionRoot),
+    transactionHooks: { afterCandidateCopy() { throw new Error('injected candidate preparation failure'); } },
+  }), (error) => error.message.includes('injected candidate preparation failure')
+    && error.message.includes('injected transaction cleanup failure')
+    && error.message.includes('may have partially removed contents')
+    && error.message.includes(transactionRoot));
+
+  assert.deepEqual(installedSnapshot(expected.publicRoot), before);
+  assert.equal(fs.existsSync(transactionRoot), true);
+});
+
+test('post-rollback cleanup preserves the promotion error and ownership marker when cleanup fails', async (t) => {
+  const expected = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: expected.toolingRoot, runId: 'bbbbbbbbbbbb' });
+  const before = installedSnapshot(expected.publicRoot);
+  const transactionRoot = path.join(expected.publicRoot, '.freetv-tooling-development-data-cccccccccccc');
+
+  await assert.rejects(installViewerDevelopmentData({
+    toolingRoot: expected.toolingRoot,
+    runId: 'cccccccccccc',
+    fileSystem: withTransactionCleanupFailure(transactionRoot),
+    transactionHooks: {
+      beforePromotion({ name }) {
+        if (name === 'playlists') throw new Error('injected promotion failure');
+      },
+    },
+  }), (error) => error.message.includes('injected promotion failure')
+    && error.message.includes('previous installation was restored')
+    && error.message.includes('injected transaction cleanup failure')
+    && error.message.includes('may have partially removed contents')
+    && error.message.includes(transactionRoot));
+
+  assert.deepEqual(installedSnapshot(expected.publicRoot), before);
+  assert.equal(fs.existsSync(transactionRoot), true);
 });
 

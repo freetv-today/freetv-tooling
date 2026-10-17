@@ -31,9 +31,19 @@ function configuredRepository(toolingRoot, config, name) {
   return path.resolve(toolingRoot, configured);
 }
 
-function requirePath(target, type, label) {
-  if (!fs.existsSync(target)) throw new Error(`${label} is missing: ${target}`);
-  const stats = fs.lstatSync(target);
+function entryExists(target, fileSystem = fs) {
+  try {
+    fileSystem.lstatSync(target);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function requirePath(target, type, label, fileSystem = fs) {
+  if (!entryExists(target, fileSystem)) throw new Error(`${label} is missing: ${target}`);
+  const stats = fileSystem.lstatSync(target);
   if (stats.isSymbolicLink()) throw new Error(`${label} must not be a symbolic link: ${target}`);
   if ((type === 'file' && !stats.isFile()) || (type === 'directory' && !stats.isDirectory())) {
     throw new Error(`${label} must be a ${type}: ${target}`);
@@ -138,8 +148,8 @@ function markerPath(paths) {
 
 function readOwnership(paths, fileSystem = fs) {
   const target = markerPath(paths);
-  if (!fileSystem.existsSync(target)) return null;
-  requirePath(target, 'file', 'Viewer development-data ownership marker');
+  if (!entryExists(target, fileSystem)) return null;
+  requirePath(target, 'file', 'Viewer development-data ownership marker', fileSystem);
   let record;
   try { record = JSON.parse(fileSystem.readFileSync(target, 'utf8')); } catch (error) {
     throw new Error(`Viewer development-data ownership marker is invalid: ${target}: ${error.message}`);
@@ -156,7 +166,7 @@ function assertNoInterruptedTransaction(paths, fileSystem = fs) {
 }
 
 function existingManaged(paths, fileSystem = fs) {
-  return MANAGED_ARTIFACTS.filter(({ name }) => fileSystem.existsSync(paths.destinations[name]));
+  return MANAGED_ARTIFACTS.filter(({ name }) => entryExists(paths.destinations[name], fileSystem));
 }
 
 function validateDestinations(paths, fileSystem = fs) {
@@ -196,7 +206,7 @@ export async function installViewerDevelopmentData({
   const transactionRoot = path.join(paths.publicRoot, `${TRANSACTION_PREFIX}${runId}`);
   const preparedRoot = path.join(transactionRoot, 'new');
   const backupRoot = path.join(transactionRoot, 'old');
-  if (fileSystem.existsSync(transactionRoot)) throw new Error(`Viewer development-data transaction already exists: ${transactionRoot}`);
+  if (entryExists(transactionRoot, fileSystem)) throw new Error(`Viewer development-data transaction already exists: ${transactionRoot}`);
   fileSystem.mkdirSync(preparedRoot, { recursive: true });
   fileSystem.mkdirSync(backupRoot);
   try {
@@ -211,7 +221,11 @@ export async function installViewerDevelopmentData({
       }
     }
   } catch (error) {
-    fileSystem.removeSync(transactionRoot);
+    try {
+      fileSystem.removeSync(transactionRoot);
+    } catch (cleanupError) {
+      throw new Error(`Could not prepare Viewer development data; previous installation is intact: ${error.message}; transaction cleanup failed and may have partially removed contents at ${transactionRoot}: ${cleanupError.message}`, { cause: error });
+    }
     throw new Error(`Could not prepare Viewer development data; previous installation is intact: ${error.message}`, { cause: error });
   }
 
@@ -219,7 +233,7 @@ export async function installViewerDevelopmentData({
   try {
     for (const state of states) {
       const destination = paths.destinations[state.name];
-      if (fileSystem.existsSync(destination)) {
+      if (entryExists(destination, fileSystem)) {
         fileSystem.renameSync(destination, path.join(backupRoot, state.name));
         state.backedUp = true;
       }
@@ -232,10 +246,10 @@ export async function installViewerDevelopmentData({
     for (const state of [...states].reverse()) {
       try {
         const destination = paths.destinations[state.name];
-        if (state.installed && fileSystem.existsSync(destination)) {
+        if (state.installed && entryExists(destination, fileSystem)) {
           fileSystem.renameSync(destination, path.join(preparedRoot, state.name));
         }
-        if (state.backedUp && fileSystem.existsSync(path.join(backupRoot, state.name))) {
+        if (state.backedUp && entryExists(path.join(backupRoot, state.name), fileSystem)) {
           transactionHooks.beforeRollback?.({ name: state.name, transactionRoot });
           fileSystem.renameSync(path.join(backupRoot, state.name), destination);
         }
@@ -244,7 +258,11 @@ export async function installViewerDevelopmentData({
     if (failures.length > 0) {
       throw new Error(`Viewer development-data promotion failed and rollback was incomplete; recovery state retained at ${transactionRoot}: ${failures.join('; ')}`, { cause: error });
     }
-    fileSystem.removeSync(transactionRoot);
+    try {
+      fileSystem.removeSync(transactionRoot);
+    } catch (cleanupError) {
+      throw new Error(`Viewer development-data promotion failed and previous installation was restored: ${error.message}; transaction cleanup failed and may have partially removed contents at ${transactionRoot}: ${cleanupError.message}`, { cause: error });
+    }
     throw new Error(`Viewer development-data promotion failed and previous installation was restored: ${error.message}`, { cause: error });
   }
 
