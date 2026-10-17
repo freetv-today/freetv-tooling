@@ -179,6 +179,43 @@ function validateDestinations(paths, fileSystem = fs) {
   }
 }
 
+export function inspectViewerDevelopmentData({ toolingRoot, config, fileSystem = fs } = {}) {
+  const resolvedToolingRoot = path.resolve(toolingRoot);
+  const effectiveConfig = config ?? loadViewerDevelopmentDataConfig(resolvedToolingRoot);
+  const paths = resolveViewerDevelopmentDataPaths(resolvedToolingRoot, effectiveConfig);
+
+  validateDestinations(paths, fileSystem);
+  assertNoInterruptedTransaction(paths, fileSystem);
+  const ownership = readOwnership(paths, fileSystem);
+  const existing = existingManaged(paths, fileSystem);
+  if (!ownership) {
+    if (existing.length === 0) return { state: 'absent', paths };
+    throw new Error('Existing Viewer development data is unmarked; manual inspection is required before startup');
+  }
+  if (existing.length !== MANAGED_ARTIFACTS.length) {
+    const missing = MANAGED_ARTIFACTS
+      .filter(({ name }) => !existing.some((artifact) => artifact.name === name))
+      .map(({ name }) => name);
+    throw new Error(`Tooling-managed Viewer development data is incomplete; missing ${missing.join(', ')}; manual inspection is required`);
+  }
+  return { state: 'ready', paths };
+}
+
+export async function prepareViewerDevelopmentData({
+  toolingRoot,
+  config,
+  fileSystem = fs,
+  inspector = inspectViewerDevelopmentData,
+  installer = installViewerDevelopmentData,
+  logger = console,
+} = {}) {
+  const inspection = inspector({ toolingRoot, config, fileSystem });
+  if (inspection.state === 'ready') return { installed: false, paths: inspection.paths };
+  const paths = await installer({ toolingRoot, config, fileSystem });
+  logger.log('Installed missing Viewer development data from the configured freetv-data repository.');
+  return { installed: true, paths };
+}
+
 export async function installViewerDevelopmentData({
   toolingRoot,
   config,

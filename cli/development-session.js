@@ -11,6 +11,7 @@ function describeFailure(result) {
 
 export async function runDevelopmentSession({
   startEnvironment = runDevelopmentEnvironment,
+  selection = 'all',
   signalSource = process,
   presentation = {},
 } = {}) {
@@ -32,13 +33,13 @@ export async function runDevelopmentSession({
   signalSource.on('SIGINT', onSigint);
   signalSource.on('SIGTERM', onSigterm);
   presentation.note?.(
-    'Viewer, Admin, and PHP will run under the existing development supervisor.',
+    'The selected services will run under the existing development supervisor.',
     'Start Development Environment',
   );
   presentation.info?.('Press Ctrl+C to stop the development environment and return to the menu.');
 
   try {
-    session = await startEnvironment();
+    session = await startEnvironment({ selection });
     if (requestedReason) void session.stop(requestedReason);
     const result = await session.completion;
     const unresolved = result.unresolved ?? [];

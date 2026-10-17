@@ -7,7 +7,7 @@ The interactive CLI invokes the existing command functions and preserves these s
 | `status` | finite, read-only | none | no confirmation |
 | `content:compare` | finite, read-only | one snapshot path | no confirmation |
 | `verify` | finite, read-only | assembled production directory | no confirmation |
-| `dev:*` | long-running | configured ports; port preflight mandatory | cancellation must use the development supervisor |
+| `dev:*` | long-running | selected configured ports; port preflight mandatory; Viewer selections prepare managed development data | cancellation must use the development supervisor; shutdown never cleans Viewer data |
 | `build:viewer`, `build:admin` | finite | configured repository | confirmation recommended because build output changes |
 | `stage:exports` | finite, disposable staging | Admin exporters | no durable publication claim |
 | `assemble` | finite, transactional | validated staged exports | confirmation recommended; report retained recovery state |
@@ -21,6 +21,12 @@ The interactive CLI invokes the existing command functions and preserves these s
 The CLI currently exposes development, local application builds, the canonical `build:all` production workflow,
 individual export/assembly/verification steps, Dataset validation/comparison/publication/release operations, and
 the complete Cleanup Tools category.
+
+Development navigation offers all services, Viewer only, or Admin and PHP together. Only selected ports are checked.
+Viewer-containing workflows automatically install development data only when all managed destinations are absent,
+reuse a complete valid Tooling-managed installation, and refuse partial, unmarked, symlinked, invalidly marked, or
+interrupted transaction state. Admin/PHP-only workflows do not touch Viewer data. Cleanup remains a separate,
+explicit operation after normal shutdown, startup failure, or unexpected service failure.
 Production builds, export staging, assembly, publication, and release generation require confirmation; read-only
 verification, validation, and comparison do not. Snapshot paths are always entered explicitly for comparison and
 publication, and publication confirmations default to No.

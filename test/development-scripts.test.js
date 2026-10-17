@@ -10,9 +10,13 @@ import {
   resolveAdminApiProxyTarget,
 } from '../scripts/lib/development.js';
 import { spawnAdminVite } from '../scripts/dev-admin.js';
-import { spawnViewerVite } from '../scripts/dev-viewer.js';
+import { prepareStandaloneViewerDevelopment, spawnViewerVite } from '../scripts/dev-viewer.js';
 import { spawnPhpServer } from '../scripts/dev-php.js';
-import { createDevelopmentServices, runDevelopmentEnvironmentCli } from '../scripts/dev-all.js';
+import {
+  createDevelopmentServices,
+  runDevelopmentEnvironment,
+  runDevelopmentEnvironmentCli,
+} from '../scripts/dev-all.js';
 
 const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'package.json'), 'utf8'));
@@ -34,6 +38,9 @@ test('public development and build commands use explicit product names', () => {
   for (const retired of ['dev:view', 'dev:server', 'dev:php-server', 'build:view', 'build:server']) {
     assert.equal(retired in packageJson.scripts, false);
   }
+
+  assert.doesNotMatch(read('scripts/dev-admin.js'), /viewer-development-data/u);
+  assert.doesNotMatch(read('scripts/dev-php.js'), /viewer-development-data/u);
 });
 
 test('renamed launcher and build files replace the retired filenames', () => {
@@ -172,13 +179,120 @@ test('development service definitions preserve commands, ports, repositories, an
   assert.equal(services.every(({ options }) => options.stdio === 'inherit'), true);
 });
 
+test('development service selection is explicit and preserves service order', () => {
+  assert.deepEqual(createDevelopmentServices({
+    toolingRoot, config, environment: {}, selection: 'all',
+  }).map(({ label }) => label), [
+    DEVELOPMENT_PRODUCTS.viewer, DEVELOPMENT_PRODUCTS.admin, DEVELOPMENT_PRODUCTS.php,
+  ]);
+  assert.deepEqual(createDevelopmentServices({
+    toolingRoot, config, environment: {}, selection: 'viewer',
+  }).map(({ label }) => label), [DEVELOPMENT_PRODUCTS.viewer]);
+  assert.deepEqual(createDevelopmentServices({
+    toolingRoot, config, environment: {}, selection: 'admin',
+  }).map(({ label }) => label), [DEVELOPMENT_PRODUCTS.admin, DEVELOPMENT_PRODUCTS.php]);
+  assert.throws(() => createDevelopmentServices({
+    toolingRoot, config, environment: {}, selection: 'unknown',
+  }), /Unsupported development service selection: unknown/u);
+});
+
+test('unselected development ports are neither resolved nor preflighted', async () => {
+  const invalidOtherPorts = {
+    ...config,
+    dev: { viewerPort: 5173, adminPort: 'invalid', phpPort: 'invalid' },
+  };
+  const preflighted = [];
+  const session = { completion: new Promise(() => {}), stop: async () => {} };
+  assert.equal(await runDevelopmentEnvironment({
+    toolingRoot, config: invalidOtherPorts, environment: {}, selection: 'viewer',
+    logger: { log() {} }, viewerDataPreparer: async () => {},
+    preflight: async (services) => preflighted.push(services.map(({ label }) => label)),
+    supervisor: async ({ services }) => { assert.equal(services.length, 1); return session; },
+  }), session);
+  assert.deepEqual(preflighted, [[DEVELOPMENT_PRODUCTS.viewer]]);
+});
+
+test('development preflight prepares Viewer data before supervisor startup only when selected', async () => {
+  for (const [selection, expectedPreparation] of [['all', 1], ['viewer', 1], ['admin', 0]]) {
+    const events = [];
+    await runDevelopmentEnvironment({
+      toolingRoot, config, environment: {}, selection, logger: { log() {} },
+      preflight: async (services) => events.push(['preflight', services.map(({ label }) => label)]),
+      viewerDataPreparer: async () => events.push(['prepare']),
+      supervisor: async () => {
+        events.push(['supervisor']);
+        return { completion: new Promise(() => {}), stop: async () => {} };
+      },
+    });
+    assert.equal(events.filter(([event]) => event === 'prepare').length, expectedPreparation);
+    assert.equal(events[0][0], 'preflight');
+    assert.equal(events.at(-1)[0], 'supervisor');
+  }
+});
+
+test('failed selected-port preflight or Viewer preparation prevents service startup', async () => {
+  for (const failureStage of ['preflight', 'prepare']) {
+    let preparations = 0;
+    let supervisors = 0;
+    await assert.rejects(runDevelopmentEnvironment({
+      toolingRoot, config, environment: {}, selection: 'viewer', logger: { log() {} },
+      preflight: async () => {
+        if (failureStage === 'preflight') throw new Error('port fixture');
+      },
+      viewerDataPreparer: async () => {
+        preparations += 1;
+        if (failureStage === 'prepare') throw new Error('data fixture');
+      },
+      supervisor: async () => { supervisors += 1; },
+    }), new RegExp(failureStage === 'preflight' ? 'port fixture' : 'data fixture', 'u'));
+    assert.equal(preparations, failureStage === 'preflight' ? 0 : 1);
+    assert.equal(supervisors, 0);
+  }
+});
+
+test('prepared Viewer data is retained after every supervisor completion outcome', async () => {
+  for (const result of [
+    { kind: 'cancelled', exitCode: 0, stopped: true, unresolved: [] },
+    { kind: 'unexpected-exit', exitCode: 1, stopped: true, unresolved: [] },
+    { kind: 'spawn', exitCode: 1, stopped: true, unresolved: [] },
+  ]) {
+    let viewerDataPresent = false;
+    const session = await runDevelopmentEnvironment({
+      toolingRoot, config, environment: {}, selection: 'viewer', logger: { log() {} },
+      preflight: async () => {},
+      viewerDataPreparer: async () => { viewerDataPresent = true; },
+      supervisor: async () => ({ completion: Promise.resolve(result), stop: async () => {} }),
+    });
+
+    assert.deepEqual(await session.completion, result);
+    assert.equal(viewerDataPresent, true);
+  }
+});
+
+test('standalone Viewer preflight checks its port before preparing data', async () => {
+  const events = [];
+  await prepareStandaloneViewerDevelopment({
+    portPreflight: async () => events.push('port'),
+    viewerDataPreparer: async () => events.push('data'),
+  });
+  assert.deepEqual(events, ['port', 'data']);
+
+  await assert.rejects(prepareStandaloneViewerDevelopment({
+    portPreflight: async () => { throw new Error('occupied'); },
+    viewerDataPreparer: async () => events.push('unexpected'),
+  }), /occupied/u);
+  assert.doesNotMatch(events.join(','), /unexpected/u);
+});
+
 test('imported individual development launchers are inert and expose injectable spawn functions', () => {
   for (const launch of [spawnViewerVite, spawnAdminVite, spawnPhpServer]) assert.equal(typeof launch, 'function');
 });
 
 test('standalone development wrapper maps cancellation and startup failure exit statuses', async () => {
   const logger = { log() {}, error() {} };
-  const common = { toolingRoot, config, logger, preflight: async () => {} };
+  const common = {
+    toolingRoot, config, logger, preflight: async () => {}, viewerDataPreparer: async () => {},
+  };
   assert.equal(await runDevelopmentEnvironmentCli({
     ...common,
     supervisor: async () => ({

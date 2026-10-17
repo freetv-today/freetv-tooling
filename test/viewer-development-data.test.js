@@ -6,7 +6,9 @@ import test from 'node:test';
 import fsExtra from 'fs-extra';
 import {
   cleanViewerDevelopmentData,
+  inspectViewerDevelopmentData,
   installViewerDevelopmentData,
+  prepareViewerDevelopmentData,
 } from '../scripts/lib/viewer-development-data.js';
 
 function write(filePath, contents) {
@@ -336,5 +338,77 @@ test('post-rollback cleanup preserves the promotion error and ownership marker w
 
   assert.deepEqual(installedSnapshot(expected.publicRoot), before);
   assert.equal(fs.existsSync(transactionRoot), true);
+});
+
+test('Viewer startup inspection installs completely absent managed data exactly once', async (t) => {
+  const expected = fixture(t);
+  assert.equal(inspectViewerDevelopmentData({ toolingRoot: expected.toolingRoot }).state, 'absent');
+  let installations = 0;
+  const result = await prepareViewerDevelopmentData({
+    toolingRoot: expected.toolingRoot,
+    logger: { log() {} },
+    installer: async (options) => {
+      installations += 1;
+      return installViewerDevelopmentData({ ...options, runId: 'dddddddddddd' });
+    },
+  });
+  assert.equal(result.installed, true);
+  assert.equal(installations, 1);
+  assert.equal(inspectViewerDevelopmentData({ toolingRoot: expected.toolingRoot }).state, 'ready');
+});
+
+test('valid Tooling-managed Viewer data is reused without installation or overwrite', async (t) => {
+  const expected = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: expected.toolingRoot, runId: 'eeeeeeeeeeee' });
+  const before = installedSnapshot(expected.publicRoot);
+  let installations = 0;
+  const result = await prepareViewerDevelopmentData({
+    toolingRoot: expected.toolingRoot,
+    installer: async () => { installations += 1; throw new Error('must not install'); },
+  });
+  assert.equal(result.installed, false);
+  assert.equal(installations, 0);
+  assert.deepEqual(installedSnapshot(expected.publicRoot), before);
+});
+
+test('Viewer startup inspection refuses unmarked, incomplete, and invalid-marker states', async (t) => {
+  const unmarked = fixture(t);
+  write(path.join(unmarked.publicRoot, 'config.json'), 'unmarked');
+  assert.throws(
+    () => inspectViewerDevelopmentData({ toolingRoot: unmarked.toolingRoot }),
+    /unmarked.*manual inspection/u,
+  );
+
+  const incomplete = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: incomplete.toolingRoot, runId: 'ffffffffffff' });
+  fs.rmSync(path.join(incomplete.publicRoot, 'thumbs'), { recursive: true });
+  assert.throws(
+    () => inspectViewerDevelopmentData({ toolingRoot: incomplete.toolingRoot }),
+    /incomplete.*missing thumbs.*manual inspection/u,
+  );
+
+  const invalid = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: invalid.toolingRoot, runId: '121212121212' });
+  fs.writeFileSync(path.join(invalid.publicRoot, '.freetv-tooling-development-data.json'), '{}');
+  assert.throws(
+    () => inspectViewerDevelopmentData({ toolingRoot: invalid.toolingRoot }),
+    /ownership marker does not match/u,
+  );
+});
+
+test('Viewer startup inspection refuses symlinked content and interrupted transactions', { skip: process.platform === 'win32' }, async (t) => {
+  const symlinked = fixture(t);
+  fs.symlinkSync(path.join(symlinked.root, 'missing-target'), path.join(symlinked.publicRoot, 'playlists'), 'dir');
+  assert.throws(
+    () => inspectViewerDevelopmentData({ toolingRoot: symlinked.toolingRoot }),
+    /destination is unsafe or ambiguous/u,
+  );
+
+  const interrupted = fixture(t);
+  fs.mkdirSync(path.join(interrupted.publicRoot, '.freetv-tooling-development-data-retained'));
+  assert.throws(
+    () => inspectViewerDevelopmentData({ toolingRoot: interrupted.toolingRoot }),
+    /Interrupted Viewer development-data transaction requires manual inspection/u,
+  );
 });
 

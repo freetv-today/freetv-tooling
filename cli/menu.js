@@ -21,7 +21,9 @@ export const DIAGNOSTICS_MENU_OPTIONS = Object.freeze([
 ]);
 
 export const DEVELOPMENT_MENU_OPTIONS = Object.freeze([
-  { value: 'start', label: 'Start Development Environment (Viewer + Admin + PHP)' },
+  { value: 'all', label: 'Start Entire Dev Environment (Viewer + Admin + PHP)' },
+  { value: 'viewer', label: 'Start Dev Viewer' },
+  { value: 'admin', label: 'Start Dev Admin Dashboard (Admin + PHP)' },
   { value: 'back', label: 'Back to Main Menu' },
 ]);
 
@@ -122,6 +124,7 @@ export async function runInteractiveCli({
         }
         const outcome = await runDevelopmentSession({
           startEnvironment: operations?.runDevelopmentEnvironment,
+          selection: developmentSelection,
           signalSource,
           presentation: {
             note: prompts.note, info: prompts.log.info,

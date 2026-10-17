@@ -7,6 +7,7 @@ import {
   DEVELOPMENT_PRODUCTS,
   resolveDevelopmentPort,
 } from './lib/development.js';
+import { prepareViewerDevelopmentData } from './lib/viewer-development-data.js';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const toolingRoot = path.resolve(path.dirname(scriptPath), '..');
@@ -26,9 +27,19 @@ export function spawnViewerVite({
   );
 }
 
+export async function prepareStandaloneViewerDevelopment({
+  portPreflight = assertDevelopmentPortAvailable,
+  viewerDataPreparer = prepareViewerDevelopmentData,
+  logger = console,
+} = {}) {
+  await portPreflight({ label, port });
+  await viewerDataPreparer({ toolingRoot, config, logger });
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   try {
-    if (process.env.FREETV_SKIP_PORT_PREFLIGHT !== '1') await assertDevelopmentPortAvailable({ label, port });
+    if (process.env.FREETV_SKIP_PORT_PREFLIGHT !== '1') await prepareStandaloneViewerDevelopment();
+    else await prepareViewerDevelopmentData({ toolingRoot, config });
     console.log(`${label} starting on port ${port}.`);
     const dev = spawnViewerVite();
     let finished = false;

@@ -60,7 +60,7 @@ test('CLI modules are import-safe and expose the planned v1 navigation', () => {
   assert.deepEqual(DIAGNOSTICS_MENU_OPTIONS.map(({ value }) => value), [
     'status', 'verify', 'validate', 'back',
   ]);
-  assert.deepEqual(DEVELOPMENT_MENU_OPTIONS.map(({ value }) => value), ['start', 'back']);
+  assert.deepEqual(DEVELOPMENT_MENU_OPTIONS.map(({ value }) => value), ['all', 'viewer', 'admin', 'back']);
   assert.deepEqual(BUILD_MENU_OPTIONS.map(({ value }) => value), ['viewer', 'admin', 'both', 'back']);
   assert.deepEqual(PRODUCTION_MENU_OPTIONS.map(({ value }) => value), [
     'complete', 'stage', 'assemble', 'verify', 'back',
@@ -109,7 +109,7 @@ test('cleanup back navigation performs no operation', async () => {
 test('cancellation exits immediately without dispatching a later selection', async () => {
   for (const selections of [
     [CANCEL, 'diagnostics'], ['diagnostics', CANCEL, 'status'],
-    ['dev', CANCEL, 'start'], ['build-local', CANCEL, 'viewer'],
+    ['dev', CANCEL, 'all'], ['build-local', CANCEL, 'viewer'],
   ]) {
     const calls = [];
     const prompts = promptFixture([...selections]);
@@ -200,7 +200,7 @@ test('build success is presented only after the existing operation completes', a
 
 test('an unresolved development shutdown exits conservatively and prevents a second start', async () => {
   const calls = [];
-  const prompts = promptFixture(['dev', 'start', 'start']);
+  const prompts = promptFixture(['dev', 'all', 'all']);
   const incomplete = {
     records: [], stop: async () => {},
     completion: Promise.resolve({
@@ -217,7 +217,7 @@ test('an unresolved development shutdown exits conservatively and prevents a sec
 
 test('a confirmed development shutdown returns to its submenu without starting twice', async () => {
   const calls = [];
-  const prompts = promptFixture(['dev', 'start', 'back', 'exit']);
+  const prompts = promptFixture(['dev', 'all', 'back', 'exit']);
   const stopped = {
     stop: async () => {},
     completion: Promise.resolve({
@@ -231,4 +231,24 @@ test('a confirmed development shutdown returns to its submenu without starting t
   assert.deepEqual(calls, ['development']);
   assert.equal(prompts.events.some(([kind, message]) => kind === 'success'
     && /Development environment stopped/u.test(message)), true);
+});
+
+test('all three development menu choices pass the explicit service selection', async () => {
+  const selections = [];
+  const prompts = promptFixture([
+    'dev', 'all', 'viewer', 'admin', 'back', 'exit',
+  ]);
+  const stopped = {
+    stop: async () => {},
+    completion: Promise.resolve({
+      kind: 'cancelled', signal: 'SIGINT', stopped: true, unresolved: [], signalErrors: [], exitCode: 130,
+    }),
+  };
+  assert.equal(await runInteractiveCli({
+    applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
+    operations: {
+      runDevelopmentEnvironment: async ({ selection }) => { selections.push(selection); return stopped; },
+    },
+  }), 0);
+  assert.deepEqual(selections, ['all', 'viewer', 'admin']);
 });

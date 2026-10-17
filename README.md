@@ -72,7 +72,7 @@ npm run freetv
 The seven main categories cover local development, Viewer/Admin builds, production assembly, Dataset workflows,
 cleanup tools, diagnostics, and Exit. The CLI can:
 
-* start the Viewer, Admin, and PHP development services; Ctrl+C performs supervised shutdown and returns to the menu;
+* start all development services, the Viewer alone, or the Admin and PHP services together; Ctrl+C performs supervised shutdown and returns to the menu;
 * build Viewer or Admin locally, or run the complete production build;
 * validate or compare Dataset snapshots, publish an explicitly selected snapshot to the local `freetv-data`
   repository, and rebuild local First Run release packages;
@@ -114,7 +114,7 @@ Return to `freetv-tooling` and verify that the configured repositories are avail
 npm run status
 ```
 
-Install a disposable copy of the current `freetv-data` Viewer artifacts:
+You may explicitly install a disposable copy of the current `freetv-data` Viewer artifacts:
 
 ```bash
 npm run dev:install-viewer-data
@@ -132,6 +132,12 @@ Start the Viewer, Admin Dashboard, and PHP backend together:
 ```bash
 npm run dev:all
 ```
+
+`dev:all` and `dev:viewer` automatically install Viewer development data when all three managed destinations are
+absent. A complete, valid Tooling-managed installation is reused without being overwritten. Ambiguous state—such
+as partial, unmarked, symlinked, invalidly marked, or interrupted transaction content—is refused for manual review.
+Stopping development never removes the installed data; use the explicit cleanup command when you want to remove it.
+The interactive CLI offers the same all-services and Viewer-only workflows, plus Admin and PHP together.
 
 The default development ports are:
 
@@ -349,6 +355,11 @@ The Viewer requires static JSON and thumbnail artifacts but does not require a l
 npm run dev:install-viewer-data
 ```
 
+The Viewer-containing development commands (`npm run dev:all` and `npm run dev:viewer`) perform this preparation
+automatically when the managed destinations are fully absent. They reuse a complete Tooling-managed installation
+and refuse unsafe or ambiguous existing state rather than overwriting it. `npm run dev:admin` and `npm run dev:php`
+do not inspect or modify Viewer data.
+
 This command resets these paths in `freetv-viewer/public/`:
 
 ```text
@@ -358,6 +369,8 @@ thumbs/
 ```
 
 These files are disposable local development state. Rerunning the command removes stale files and restores all three paths from the currently configured `freetv-data` repository.
+
+Development shutdown, startup failure, or unexpected service failure does not clean these files automatically.
 
 Do not edit the installed Viewer copies as the source of a dataset, and do not commit them from the Viewer repository. The distributable source files belong in `freetv-data`, while MariaDB remains authoritative for working Admin data.
 
