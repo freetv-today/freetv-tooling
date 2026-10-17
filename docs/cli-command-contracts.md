@@ -1,6 +1,6 @@
 # CLI command contracts
 
-The future interactive CLI must invoke the existing command functions and preserve these safety boundaries.
+The interactive CLI invokes the existing command functions and preserves these safety boundaries.
 
 | Command | Kind | Inputs and gate | Durable mutation / confirmation policy |
 |---|---|---|---|
@@ -17,5 +17,11 @@ The future interactive CLI must invoke the existing command functions and preser
 | `clean:thumbs` | finite | dry-run by default; `--apply` mutates | explicit confirmation before `--apply` |
 | `dev:install-viewer-data` | finite, recoverable replacement | validated Data and Viewer repositories | confirmation recommended |
 | `dev:clean-viewer-data` | finite, destructive cleanup | exact Tooling ownership marker | explicit confirmation required |
+
+The CLI currently exposes development, local application builds, the canonical `build:all` production workflow,
+individual export/assembly/verification steps, and Dataset validation/comparison/publication/release operations.
+Production builds, export staging, assembly, publication, and release generation require confirmation; read-only
+verification, validation, and comparison do not. Snapshot paths are always entered explicitly for comparison and
+publication, and publication confirmations default to No.
 
 Release promotion, Data publication, and Admin SQL synchronization use stale-transaction refusal rather than atomic concurrency claims. The CLI must serialize these commands and must not offer parallel execution. A command may report success only after its complete contract finishes; follow-up cleanup or synchronization failures must retain and report their partial-success state.

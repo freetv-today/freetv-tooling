@@ -4,9 +4,11 @@ import { runBuildAction, runDiagnosticAction } from '../cli/actions.js';
 import { runCli } from '../cli/index.js';
 import {
   BUILD_MENU_OPTIONS,
+  DATASET_MENU_OPTIONS,
   DEVELOPMENT_MENU_OPTIONS,
   DIAGNOSTICS_MENU_OPTIONS,
   MAIN_MENU_OPTIONS,
+  PRODUCTION_MENU_OPTIONS,
   runInteractiveCli,
 } from '../cli/menu.js';
 
@@ -20,6 +22,7 @@ function promptFixture(selections) {
     note: (message, title) => events.push(['note', title, message]),
     select: async (options) => { events.push(['select', options]); return selections.shift(); },
     confirm: async (options) => { events.push(['confirm', options]); return selections.shift(); },
+    text: async (options) => { events.push(['text', options]); return selections.shift(); },
     isCancel: (value) => value === CANCEL,
     cancel: (message) => events.push(['cancel', message]),
     outro: (message) => events.push(['outro', message]),
@@ -58,8 +61,17 @@ test('CLI modules are import-safe and expose the planned v1 navigation', () => {
   ]);
   assert.deepEqual(DEVELOPMENT_MENU_OPTIONS.map(({ value }) => value), ['start', 'back']);
   assert.deepEqual(BUILD_MENU_OPTIONS.map(({ value }) => value), ['viewer', 'admin', 'both', 'back']);
+  assert.deepEqual(PRODUCTION_MENU_OPTIONS.map(({ value }) => value), [
+    'complete', 'stage', 'assemble', 'verify', 'back',
+  ]);
+  assert.deepEqual(DATASET_MENU_OPTIONS.map(({ value }) => value), [
+    'validate', 'compare', 'publish', 'release', 'back',
+  ]);
   assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'dev').label, /Coming later/u);
   assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'build-local').label, /Coming later/u);
+  assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'build-production').label, /Coming later/u);
+  assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'dataset').label, /Coming later/u);
+  assert.match(MAIN_MENU_OPTIONS.find(({ value }) => value === 'cleanup').label, /Coming later/u);
 });
 
 test('diagnostics dispatches existing operations and reports only confirmed success', async () => {
@@ -82,12 +94,12 @@ test('diagnostics dispatches existing operations and reports only confirmed succ
 
 test('future categories give information and never dispatch an operation', async () => {
   const calls = [];
-  const prompts = promptFixture(['build-production', 'dataset', 'cleanup', 'exit']);
+  const prompts = promptFixture(['cleanup', 'exit']);
   assert.equal(await runInteractiveCli({
     applicationName: 'FreeTV Tooling', version: '1.0.0', prompts, operations: operations(calls),
   }), 0);
   assert.deepEqual(calls, []);
-  assert.equal(prompts.events.filter(([kind, title]) => kind === 'note' && title !== 'Version').length, 3);
+  assert.equal(prompts.events.filter(([kind, title]) => kind === 'note' && title !== 'Version').length, 1);
 });
 
 test('cancellation exits immediately without dispatching a later selection', async () => {

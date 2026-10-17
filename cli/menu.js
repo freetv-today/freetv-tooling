@@ -1,11 +1,12 @@
 import { runBuildAction, runDiagnosticAction } from './actions.js';
 import { runDevelopmentSession } from './development-session.js';
+import { runDatasetAction, runProductionAction } from './workflow-actions.js';
 
 export const MAIN_MENU_OPTIONS = Object.freeze([
   { value: 'dev', label: 'Run Apps Locally (Dev)' },
   { value: 'build-local', label: 'Build Apps Locally' },
-  { value: 'build-production', label: 'Build for Production — Coming later' },
-  { value: 'dataset', label: 'Dataset Operations — Coming later' },
+  { value: 'build-production', label: 'Build for Production' },
+  { value: 'dataset', label: 'Dataset Operations' },
   { value: 'cleanup', label: 'Cleanup Tools — Coming later' },
   { value: 'diagnostics', label: 'Tests & Diagnostics' },
   { value: 'exit', label: 'Exit' },
@@ -30,7 +31,32 @@ export const BUILD_MENU_OPTIONS = Object.freeze([
   { value: 'back', label: 'Back to Main Menu' },
 ]);
 
-const FUTURE_CATEGORIES = new Set(['build-production', 'dataset', 'cleanup']);
+export const PRODUCTION_MENU_OPTIONS = Object.freeze([
+  { value: 'complete', label: 'Complete Production Build' },
+  { value: 'stage', label: 'Stage Admin Exports' },
+  { value: 'assemble', label: 'Assemble Production Output' },
+  { value: 'verify', label: 'Verify Production Output' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+export const DATASET_MENU_OPTIONS = Object.freeze([
+  { value: 'validate', label: 'Validate Dataset' },
+  { value: 'compare', label: 'Compare Snapshot' },
+  { value: 'publish', label: 'Publish Snapshot to Local Data Repository' },
+  { value: 'release', label: 'Build Release Packages' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+const FUTURE_CATEGORIES = new Set(['cleanup']);
+const PRODUCTION_CONFIRMATIONS = Object.freeze({
+  complete: 'Build Viewer and Admin, stage exports, assemble, and verify the local production output?',
+  stage: 'Replace the disposable Admin export staging contents?',
+  assemble: 'Assemble and potentially replace the configured local production output?',
+});
+
+function presentation(prompts) {
+  return { success: prompts.log.success, error: prompts.log.error };
+}
 
 export async function runInteractiveCli({
   applicationName,
@@ -119,6 +145,94 @@ export async function runInteractiveCli({
           presentation: {
             note: prompts.note, success: prompts.log.success, error: prompts.log.error,
           },
+        });
+        if (status !== 0) finalStatus = 1;
+      }
+      continue;
+    }
+
+    if (mainSelection === 'build-production') {
+      let showProduction = true;
+      while (showProduction) {
+        const productionSelection = await prompts.select({
+          message: 'Build for Production', options: PRODUCTION_MENU_OPTIONS,
+        });
+        if (cancelled(productionSelection)) return finalStatus;
+        if (productionSelection === 'back') {
+          showProduction = false;
+          continue;
+        }
+        if (productionSelection !== 'verify') {
+          const confirmed = await prompts.confirm({
+            message: PRODUCTION_CONFIRMATIONS[productionSelection], initialValue: false,
+          });
+          if (cancelled(confirmed)) return finalStatus;
+          if (!confirmed) {
+            prompts.log.info('Operation cancelled; nothing was started.');
+            continue;
+          }
+        }
+        const status = await runProductionAction(productionSelection, {
+          operations, presentation: presentation(prompts),
+        });
+        if (status !== 0) finalStatus = 1;
+      }
+      continue;
+    }
+
+    if (mainSelection === 'dataset') {
+      let showDatasets = true;
+      while (showDatasets) {
+        const datasetSelection = await prompts.select({
+          message: 'Dataset Operations', options: DATASET_MENU_OPTIONS,
+        });
+        if (cancelled(datasetSelection)) return finalStatus;
+        if (datasetSelection === 'back') {
+          showDatasets = false;
+          continue;
+        }
+
+        let snapshotPath;
+        if (datasetSelection === 'compare' || datasetSelection === 'publish') {
+          snapshotPath = await prompts.text({
+            message: 'Snapshot directory or ZIP path:',
+            validate: (value) => (typeof value !== 'string' || value.trim() === ''
+              ? 'Enter a snapshot directory or ZIP path.' : undefined),
+          });
+          if (cancelled(snapshotPath)) return finalStatus;
+          if (typeof snapshotPath !== 'string' || snapshotPath.trim() === '') {
+            prompts.log.error('A snapshot directory or ZIP path is required.');
+            continue;
+          }
+        }
+
+        if (datasetSelection === 'publish') {
+          prompts.note([
+            `Snapshot: ${snapshotPath}`,
+            'This changes the local freetv-data repository and synchronizes Admin SQL copies.',
+            'It does not update the live website or create a GitHub release.',
+          ].join('\n'), 'Publish Snapshot');
+        } else if (datasetSelection === 'release') {
+          prompts.note(
+            'This rebuilds and replaces the local Sample and Official First Run release ZIPs. It does not upload them.',
+            'Build Release Packages',
+          );
+        }
+
+        if (datasetSelection === 'publish' || datasetSelection === 'release') {
+          const confirmed = await prompts.confirm({
+            message: `Continue with ${DATASET_MENU_OPTIONS.find(({ value }) => value === datasetSelection).label}?`,
+            initialValue: false,
+          });
+          if (cancelled(confirmed)) return finalStatus;
+          if (!confirmed) {
+            prompts.log.info('Operation cancelled; nothing was started.');
+            continue;
+          }
+        }
+
+        const status = await runDatasetAction(datasetSelection, {
+          snapshotPath, operations, presentation: presentation(prompts),
         });
         if (status !== 0) finalStatus = 1;
       }
