@@ -1,6 +1,7 @@
 import { runBuildAction, runDiagnosticAction } from './actions.js';
 import { runCleanupAction } from './cleanup-actions.js';
 import { launchDevelopmentTerminal } from './development-terminal.js';
+import { createResultPresentation } from './presentation.js';
 import { runDatasetAction, runProductionAction } from './workflow-actions.js';
 
 export const MAIN_MENU_OPTIONS = Object.freeze([
@@ -79,10 +80,6 @@ const PRODUCTION_CONFIRMATIONS = Object.freeze({
   assemble: 'Assemble and potentially replace the configured local production output?',
 });
 
-function presentation(prompts) {
-  return { success: prompts.log.success, error: prompts.log.error };
-}
-
 export async function runInteractiveCli({
   applicationName,
   version,
@@ -91,6 +88,7 @@ export async function runInteractiveCli({
 } = {}) {
   prompts.intro(applicationName);
   prompts.note(version, 'Version');
+  const results = createResultPresentation(prompts);
   let finalStatus = 0;
 
   const cancelled = (selection) => {
@@ -137,7 +135,7 @@ export async function runInteractiveCli({
             continue;
           }
           const status = await runCleanupAction('viewer-install', {
-            operations, presentation: presentation(prompts),
+            operations, presentation: results,
           });
           if (status !== 0) finalStatus = 1;
           continue;
@@ -146,10 +144,10 @@ export async function runInteractiveCli({
           await (operations?.launchDevelopmentTerminal ?? launchDevelopmentTerminal)({
             selection: developmentSelection,
           });
-          prompts.log.success('Development terminal launch requested. Startup diagnostics are shown in that terminal.');
+          results.success('Development terminal launch requested. Startup diagnostics are shown in that terminal.');
         } catch (error) {
           finalStatus = 1;
-          prompts.log.error(`Development terminal launch failed: ${error.message}`);
+          results.error(`Development terminal launch failed: ${error.message}`);
         }
       }
       continue;
@@ -177,7 +175,7 @@ export async function runInteractiveCli({
         const status = await runBuildAction(buildSelection, {
           operations,
           presentation: {
-            note: prompts.note, success: prompts.log.success, error: prompts.log.error,
+            note: prompts.note, ...results,
           },
         });
         if (status !== 0) finalStatus = 1;
@@ -199,7 +197,7 @@ export async function runInteractiveCli({
           }
         }
         const status = await runProductionAction(selection, {
-          operations, presentation: presentation(prompts),
+          operations, presentation: results,
         });
         return { status };
       };
@@ -257,7 +255,7 @@ export async function runInteractiveCli({
           });
           if (cancelled(snapshotPath)) return finalStatus;
           if (typeof snapshotPath !== 'string' || snapshotPath.trim() === '') {
-            prompts.log.error('A snapshot directory or ZIP path is required.');
+            results.error('A snapshot directory or ZIP path is required.');
             continue;
           }
         }
@@ -288,7 +286,7 @@ export async function runInteractiveCli({
         }
 
         const status = await runDatasetAction(datasetSelection, {
-          snapshotPath, operations, presentation: presentation(prompts),
+          snapshotPath, operations, presentation: results,
         });
         if (status !== 0) finalStatus = 1;
       }
@@ -328,7 +326,7 @@ export async function runInteractiveCli({
         }
 
         const status = await runCleanupAction(cleanupSelection, {
-          operations, presentation: presentation(prompts),
+          operations, presentation: results,
         });
         if (status !== 0) finalStatus = 1;
       }
@@ -352,8 +350,7 @@ export async function runInteractiveCli({
         operations,
         presentation: {
           note: prompts.note,
-          success: prompts.log.success,
-          error: prompts.log.error,
+          ...results,
         },
       });
       if (status !== 0) finalStatus = 1;
