@@ -5,8 +5,9 @@ import { runDevelopmentSession } from '../cli/development-session.js';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, reject, resolve };
 }
 
 function presentation() {
@@ -142,6 +143,77 @@ test('startup failure is reported and scoped signal listeners are still removed'
   assert.equal(outcome.status, 1);
   assert.equal(outcome.returnToMenu, true);
   assert.match(output.messages.find(([kind]) => kind === 'error')[1], /failed to start: port fixture/u);
+  assert.equal(signals.listenerCount('SIGINT'), 0);
+  assert.equal(signals.listenerCount('SIGTERM'), 0);
+});
+
+test('SIGTERM during startup preserves the startup failure and exits after listener cleanup', async () => {
+  const signals = new EventEmitter();
+  const startup = deferred();
+  const output = presentation();
+  const running = runDevelopmentSession({
+    startEnvironment: () => startup.promise, signalSource: signals, presentation: output,
+  });
+
+  signals.emit('SIGTERM');
+  signals.emit('SIGTERM');
+  startup.reject(new Error('startup rejection fixture'));
+  const outcome = await running;
+
+  assert.equal(outcome.status, 1);
+  assert.equal(outcome.returnToMenu, false);
+  assert.match(output.messages.find(([kind]) => kind === 'error')[1], /startup rejection fixture/u);
+  assert.equal(signals.listenerCount('SIGINT'), 0);
+  assert.equal(signals.listenerCount('SIGTERM'), 0);
+});
+
+test('SIGTERM racing an unexpected exit preserves the supervisor failure and exits once cleanup completes', async () => {
+  const signals = new EventEmitter();
+  const controlled = controlledSession();
+  const output = presentation();
+  const running = runDevelopmentSession({
+    startEnvironment: async () => controlled.session, signalSource: signals, presentation: output,
+  });
+  await Promise.resolve();
+
+  const failure = {
+    kind: 'unexpected-exit', service: 'Admin', code: 9,
+    stopped: true, unresolved: [], signalErrors: [], exitCode: 9,
+  };
+  controlled.completion.resolve(failure);
+  signals.emit('SIGTERM');
+  signals.emit('SIGTERM');
+  const outcome = await running;
+
+  assert.equal(outcome.status, 1);
+  assert.equal(outcome.returnToMenu, false);
+  assert.equal(outcome.result, failure);
+  assert.equal(controlled.reasons.length, 1);
+  assert.equal(controlled.reasons[0].signal, 'SIGTERM');
+  assert.match(output.messages.find(([kind]) => kind === 'error')[1], /stopped unexpectedly.*Admin.*9/u);
+  assert.equal(signals.listenerCount('SIGINT'), 0);
+  assert.equal(signals.listenerCount('SIGTERM'), 0);
+});
+
+test('SIGINT during startup retains menu return and makes only one shutdown request', async () => {
+  const signals = new EventEmitter();
+  const startup = deferred();
+  const result = {
+    kind: 'cancelled', signal: 'SIGINT', stopped: true, unresolved: [], signalErrors: [], exitCode: 130,
+  };
+  const controlled = controlledSession({ stopResult: result });
+  const running = runDevelopmentSession({
+    startEnvironment: () => startup.promise, signalSource: signals, presentation: presentation(),
+  });
+
+  signals.emit('SIGINT');
+  signals.emit('SIGINT');
+  startup.resolve(controlled.session);
+  const outcome = await running;
+
+  assert.equal(outcome.status, 0);
+  assert.equal(outcome.returnToMenu, true);
+  assert.equal(controlled.reasons.length, 1);
   assert.equal(signals.listenerCount('SIGINT'), 0);
   assert.equal(signals.listenerCount('SIGTERM'), 0);
 });

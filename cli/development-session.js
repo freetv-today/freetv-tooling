@@ -17,8 +17,10 @@ export async function runDevelopmentSession({
   let session;
   let requestedReason;
   let stopRequested = false;
+  let terminationRequested = false;
 
   const requestStop = (signal) => {
+    if (signal === 'SIGTERM') terminationRequested = true;
     if (stopRequested) return;
     stopRequested = true;
     requestedReason = { kind: 'cancelled', signal, exitCode: signal === 'SIGINT' ? 130 : 143 };
@@ -54,14 +56,18 @@ export async function runDevelopmentSession({
         ? 'Development environment startup failed'
         : 'Development environment stopped unexpectedly';
       presentation.error?.(`${summary}${describeFailure(result)}.`);
-      return { status: 1, returnToMenu: true, result };
+      return { status: 1, returnToMenu: !terminationRequested, result };
     }
 
     presentation.success?.('Development environment stopped.');
-    return { status: 0, returnToMenu: result.signal !== 'SIGTERM', result };
+    return {
+      status: 0,
+      returnToMenu: !terminationRequested && result.signal !== 'SIGTERM',
+      result,
+    };
   } catch (error) {
     presentation.error?.(`Development environment failed to start: ${error.message}`);
-    return { status: 1, returnToMenu: true, error };
+    return { status: 1, returnToMenu: !terminationRequested, error };
   } finally {
     signalSource.removeListener('SIGINT', onSigint);
     signalSource.removeListener('SIGTERM', onSigterm);
