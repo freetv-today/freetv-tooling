@@ -63,6 +63,8 @@ FreeTV Tooling does not install MariaDB, create database accounts, initialize th
 
 ### Interactive CLI
 
+![FreeTV CLI](https://raw.githubusercontent.com/freetv-today/.github/refs/heads/main/pics/freetv-cli.png)
+
 Launch FreeTV Tooling's interactive CLI with:
 
 ```bash
