@@ -61,7 +61,16 @@ test('CLI modules are import-safe and expose the planned v1 navigation', () => {
   assert.deepEqual(DIAGNOSTICS_MENU_OPTIONS.map(({ value }) => value), [
     'status', 'verify', 'validate', 'back',
   ]);
-  assert.deepEqual(DEVELOPMENT_MENU_OPTIONS.map(({ value }) => value), ['all', 'viewer', 'admin', 'back']);
+  assert.deepEqual(DEVELOPMENT_MENU_OPTIONS.map(({ value }) => value), [
+    'all', 'viewer', 'admin', 'viewer-install', 'back',
+  ]);
+  assert.deepEqual(DEVELOPMENT_MENU_OPTIONS.map(({ label }) => label), [
+    'Start Entire Dev Environment (Viewer + Admin + PHP)',
+    'Start Dev Viewer',
+    'Start Dev Admin Dashboard (Admin + PHP)',
+    'Install Viewer Development Data',
+    'Back to Main Menu',
+  ]);
   assert.deepEqual(BUILD_MENU_OPTIONS.map(({ value }) => value), ['viewer', 'admin', 'both', 'back']);
   assert.deepEqual(PRODUCTION_MENU_OPTIONS.map(({ value }) => value), ['complete', 'advanced', 'back']);
   assert.deepEqual(PRODUCTION_MENU_OPTIONS.map(({ label }) => label), [
@@ -78,7 +87,11 @@ test('CLI modules are import-safe and expose the planned v1 navigation', () => {
     'validate', 'compare', 'publish', 'release', 'back',
   ]);
   assert.deepEqual(CLEANUP_MENU_OPTIONS.map(({ value }) => value), [
-    'thumbs-dry-run', 'thumbs-apply', 'viewer-install', 'viewer-remove', 'back',
+    'thumbs-dry-run', 'thumbs-apply', 'viewer-remove', 'back',
+  ]);
+  assert.deepEqual(CLEANUP_MENU_OPTIONS.map(({ label }) => label), [
+    'Find Unused Thumbnails (Dry Run)', 'Remove Unused Thumbnails',
+    'Remove Viewer Development Data', 'Back to Main Menu',
   ]);
   assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'dev').label, /Coming later/u);
   assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'build-local').label, /Coming later/u);

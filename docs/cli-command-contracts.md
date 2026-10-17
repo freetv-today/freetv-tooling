@@ -23,8 +23,9 @@ The CLI currently exposes development, local application builds, the canonical `
 individual export/assembly/verification steps, Dataset validation/comparison/publication/release operations, and
 the complete Cleanup Tools category.
 
-Development navigation offers all services, Viewer only, or Admin and PHP together. Only selected ports are checked.
-Each CLI selection starts the existing Node development entry point in a separate terminal and immediately restores
+Development navigation offers all services, Viewer only, Admin and PHP together, and independently installing
+Viewer development data. Only selected ports are checked for development launches.
+Each development launch selection starts the existing Node development entry point in a separate terminal and immediately restores
 the Clack menu. A successful terminal launch is not a claim that service startup succeeded; port, data-preparation,
 and process diagnostics remain in the development terminal. Ctrl+C there is handled by the existing supervisor and
 does not signal the Clack process. No shared-terminal fallback is permitted when graphical terminal launch fails.

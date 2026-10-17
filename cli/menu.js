@@ -24,6 +24,7 @@ export const DEVELOPMENT_MENU_OPTIONS = Object.freeze([
   { value: 'all', label: 'Start Entire Dev Environment (Viewer + Admin + PHP)' },
   { value: 'viewer', label: 'Start Dev Viewer' },
   { value: 'admin', label: 'Start Dev Admin Dashboard (Admin + PHP)' },
+  { value: 'viewer-install', label: 'Install Viewer Development Data' },
   { value: 'back', label: 'Back to Main Menu' },
 ]);
 
@@ -58,7 +59,6 @@ export const DATASET_MENU_OPTIONS = Object.freeze([
 export const CLEANUP_MENU_OPTIONS = Object.freeze([
   { value: 'thumbs-dry-run', label: 'Find Unused Thumbnails (Dry Run)' },
   { value: 'thumbs-apply', label: 'Remove Unused Thumbnails' },
-  { value: 'viewer-install', label: 'Install Viewer Development Data' },
   { value: 'viewer-remove', label: 'Remove Viewer Development Data' },
   { value: 'back', label: 'Back to Main Menu' },
 ]);
@@ -67,12 +67,6 @@ const CLEANUP_CONFIRMATIONS = Object.freeze({
   'thumbs-apply': [
     'The Admin thumbnail cleanup utility will identify and remove currently unused thumbnails.',
     'This changes files in the local Admin repository. Run the dry run first.',
-  ],
-  'viewer-install': [
-    'Install or replace managed Viewer config.json, playlists/, and thumbs/.',
-    'Source: configured local freetv-data repository.',
-    'Destination: configured Viewer public/ directory.',
-    'Existing ownership, symlink, preflight, and transaction safeguards still apply.',
   ],
   'viewer-remove': [
     'Remove only Tooling-managed Viewer config.json, playlists/, and thumbs/.',
@@ -124,6 +118,28 @@ export async function runInteractiveCli({
         if (cancelled(developmentSelection)) return finalStatus;
         if (developmentSelection === 'back') {
           showDevelopment = false;
+          continue;
+        }
+        if (developmentSelection === 'viewer-install') {
+          prompts.note([
+            'Viewer development data is installed automatically when starting Dev Viewer or the Entire Dev Environment.',
+            'Use this option to install or replace the data independently.',
+            'Source: configured local freetv-data repository.',
+            'Destination: configured Viewer public/ directory.',
+            'Existing ownership, symlink, path, and transaction safeguards still apply.',
+          ].join('\n'), 'Install Viewer Development Data');
+          const confirmed = await prompts.confirm({
+            message: 'Continue with Viewer development-data installation?', initialValue: false,
+          });
+          if (cancelled(confirmed)) return finalStatus;
+          if (!confirmed) {
+            prompts.log.info('Installation cancelled; nothing was started.');
+            continue;
+          }
+          const status = await runCleanupAction('viewer-install', {
+            operations, presentation: presentation(prompts),
+          });
+          if (status !== 0) finalStatus = 1;
           continue;
         }
         try {

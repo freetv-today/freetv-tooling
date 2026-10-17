@@ -46,11 +46,11 @@ function cleanupOperations(calls, statuses = {}) {
   };
 }
 
-test('cleanup submenu wires exact thumbnail and Viewer-data operations', async () => {
+test('cleanup submenu wires exact thumbnail and Viewer-data removal operations', async () => {
   const calls = [];
   const prompts = promptFixture([
     'cleanup', 'thumbs-dry-run', 'thumbs-apply', true,
-    'viewer-install', true, 'viewer-remove', true, 'back', 'exit',
+    'viewer-remove', true, 'back', 'exit',
   ]);
   assert.equal(await runInteractiveCli({
     applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
@@ -59,11 +59,10 @@ test('cleanup submenu wires exact thumbnail and Viewer-data operations', async (
   assert.deepEqual(calls, [
     ['thumbs', { args: [] }],
     ['thumbs', { args: ['--apply'] }],
-    ['install'],
     ['remove'],
   ]);
   const confirmations = prompts.events.filter(([kind]) => kind === 'confirm');
-  assert.equal(confirmations.length, 3);
+  assert.equal(confirmations.length, 2);
   assert.equal(confirmations.every(([, options]) => options.initialValue === false), true);
   assert.match(prompts.events.find(([kind, title]) => kind === 'note'
     && title === 'Find Unused Thumbnails')[2], /Dry run only/u);
@@ -81,7 +80,7 @@ test('thumbnail dry run does not confirm or authorize a later Apply operation', 
 });
 
 test('declined and cancelled destructive cleanup prompts execute nothing', async () => {
-  for (const action of ['thumbs-apply', 'viewer-install', 'viewer-remove']) {
+  for (const action of ['thumbs-apply', 'viewer-remove']) {
     for (const confirmation of [false, CANCEL]) {
       const calls = [];
       const selections = confirmation === false
@@ -94,6 +93,67 @@ test('declined and cancelled destructive cleanup prompts execute nothing', async
       assert.deepEqual(calls, []);
     }
   }
+});
+
+test('manual Viewer-data installation explains automatic setup and dispatches from Development once', async () => {
+  const calls = [];
+  let terminalLaunches = 0;
+  const prompts = promptFixture(['dev', 'viewer-install', true, 'back', 'exit']);
+  assert.equal(await runInteractiveCli({
+    applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
+    operations: {
+      ...cleanupOperations(calls),
+      launchDevelopmentTerminal: async () => { terminalLaunches += 1; },
+    },
+  }), 0);
+  assert.deepEqual(calls, [['install']]);
+  assert.equal(terminalLaunches, 0);
+
+  const note = prompts.events.find(([kind, title]) => (
+    kind === 'note' && title === 'Install Viewer Development Data'
+  ));
+  assert.match(note[2], /installed automatically.*Dev Viewer.*Entire Dev Environment/su);
+  assert.match(note[2], /configured local freetv-data.*configured Viewer public/su);
+  assert.match(note[2], /ownership.*symlink.*path.*transaction/su);
+  const confirmation = prompts.events.find(([kind]) => kind === 'confirm');
+  assert.equal(confirmation[1].initialValue, false);
+  assert.deepEqual(prompts.events.filter(([kind]) => kind === 'select').map(([, options]) => options.message), [
+    'What would you like to do?', 'Run Apps Locally (Dev)',
+    'Run Apps Locally (Dev)', 'What would you like to do?',
+  ]);
+});
+
+test('declined or cancelled manual Viewer-data installation invokes nothing', async () => {
+  for (const confirmation of [false, CANCEL]) {
+    const calls = [];
+    let terminalLaunches = 0;
+    const selections = confirmation === false
+      ? ['dev', 'viewer-install', false, 'back', 'exit']
+      : ['dev', 'viewer-install', CANCEL];
+    assert.equal(await runInteractiveCli({
+      applicationName: 'FreeTV Tooling', version: '1.0.0', prompts: promptFixture(selections),
+      operations: {
+        ...cleanupOperations(calls),
+        launchDevelopmentTerminal: async () => { terminalLaunches += 1; },
+      },
+    }), 0);
+    assert.deepEqual(calls, []);
+    assert.equal(terminalLaunches, 0);
+  }
+});
+
+test('manual Viewer-data installation failure is reported and Development navigation continues', async () => {
+  const calls = [];
+  const prompts = promptFixture(['dev', 'viewer-install', true, 'back', 'exit']);
+  assert.equal(await runInteractiveCli({
+    applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
+    operations: cleanupOperations(calls, { install: 1 }),
+  }), 1);
+  assert.deepEqual(calls, [['install']]);
+  assert.match(prompts.events.find(([kind]) => kind === 'error')[1], /Install Viewer Development Data failed/u);
+  assert.equal(prompts.events.filter(([kind, options]) => (
+    kind === 'select' && options.message === 'Run Apps Locally (Dev)'
+  )).length, 2);
 });
 
 test('cancelling the cleanup submenu executes nothing', async () => {
@@ -141,13 +201,13 @@ test('Viewer ownership, interrupted-transaction, and partial-recovery refusals r
 test('cleanup failure contributes to final status and later success does not erase it', async () => {
   const calls = [];
   const prompts = promptFixture([
-    'cleanup', 'thumbs-dry-run', 'viewer-install', true, 'back', 'exit',
+    'cleanup', 'thumbs-dry-run', 'viewer-remove', true, 'back', 'exit',
   ]);
   assert.equal(await runInteractiveCli({
     applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
-    operations: cleanupOperations(calls, { thumbs: 1, install: 0 }),
+    operations: cleanupOperations(calls, { thumbs: 1, remove: 0 }),
   }), 1);
-  assert.deepEqual(calls, [['thumbs', { args: [] }], ['install']]);
+  assert.deepEqual(calls, [['thumbs', { args: [] }], ['remove']]);
 });
 
 test('cleanup operations are awaited before menu prompting resumes', async () => {
