@@ -571,16 +571,26 @@ export function promoteReleasePackages({
       }
     }
     if (rollbackFailures.length > 0) {
-      throw new Error(`Release promotion failed and rollback was incomplete: ${rollbackFailures.join('; ')}`, { cause: error });
+      throw new Error(
+        `Release promotion failed and rollback was incomplete; recovery state retained at ${transactionRoot}: ${rollbackFailures.join('; ')}`,
+        { cause: error },
+      );
     }
-    fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
+    try {
+      fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new Error(
+        `Release promotion failed and was rolled back, but transaction cleanup failed and may be partial; inspect ${transactionRoot}: ${error.message}; cleanup failed: ${cleanupError.message}`,
+        { cause: error },
+      );
+    }
     throw new Error(`Release promotion failed and was rolled back: ${error.message}`, { cause: error });
   }
   try {
     fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
   } catch (error) {
     throw new Error(
-      `Release packages were promoted, but transaction cleanup failed; inspect ${transactionRoot}: ${error.message}`,
+      `Release packages were promoted, but transaction cleanup failed and may have partially removed recovery state; inspect ${transactionRoot}: ${error.message}`,
       { cause: error },
     );
   }

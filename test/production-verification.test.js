@@ -210,6 +210,12 @@ test('key files fail', (t) => {
   assert.throws(() => verifyFixture(fixture), /forbidden credential content|forbidden secret/);
 });
 
+test('Composer temporary downloads remain forbidden when present in production output', (t) => {
+  const fixture = createFixture(t);
+  writeFile(fixture.outputRoot, 'vendor/composer/tmp-deadbeef.zip~', '');
+  assert.throws(() => verifyFixture(fixture), /forbidden secret\/development artifact/);
+});
+
 test('symlinks fail', (t) => {
   const fixture = createFixture(t);
   fs.symlinkSync(path.join(fixture.outputRoot, 'composer.json'), path.join(fixture.outputRoot, 'vendor/link'));

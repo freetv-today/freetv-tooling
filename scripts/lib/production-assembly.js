@@ -49,6 +49,7 @@ const API_EXCLUDED_EXTENSIONS = new Set([
   '.bak', '.backup', '.crt', '.dump', '.key', '.old', '.orig', '.p12', '.pem', '.pfx', '.sql', '.swp', '.tmp',
 ]);
 const VENDOR_EXCLUDED_DIRECTORIES = new Set(['.git', 'node_modules', 'test', 'tests', 'tools']);
+const COMPOSER_TEMPORARY_DOWNLOAD = /^tmp-[a-f0-9]+\.zip~$/u;
 export const VIEWER_SPA_HTACCESS = `RewriteEngine On
 RewriteBase /
 
@@ -234,19 +235,27 @@ export class OwnershipRegistry {
   }
 }
 
-function copyFileOwned(source, destination, owner, ownership) {
+function copyFileOwned(source, destination, owner, ownership, hooks = {}) {
   ownership.claim(destination, owner);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(source, destination);
   fs.chmodSync(destination, fs.statSync(source).mode);
+  hooks.afterCandidateCopy?.({ source, destination, owner });
 }
 
-function copyTreeOwned(sourceRoot, destinationRoot, owner, ownership, entries = walk(sourceRoot)) {
+function copyTreeOwned(
+  sourceRoot,
+  destinationRoot,
+  owner,
+  ownership,
+  entries = walk(sourceRoot),
+  hooks = {},
+) {
   fs.mkdirSync(destinationRoot, { recursive: true });
   for (const { entry, relativePath, absolutePath } of entries) {
     const destination = path.join(destinationRoot, relativePath);
     if (entry.isDirectory()) fs.mkdirSync(destination, { recursive: true });
-    else if (entry.isFile()) copyFileOwned(absolutePath, destination, owner, ownership);
+    else if (entry.isFile()) copyFileOwned(absolutePath, destination, owner, ownership, hooks);
     else throw new Error(`${owner} source contains unsupported filesystem entry: ${relativePath}`);
   }
 }
@@ -287,8 +296,14 @@ function collectVendorEntries(vendorRoot) {
   const included = [];
   const exclusions = [];
   for (const item of walk(vendorRoot)) {
-    const segments = item.relativePath.split(path.sep).map((segment) => segment.toLowerCase());
-    if (segments.some((segment) => VENDOR_EXCLUDED_DIRECTORIES.has(segment))) {
+    const pathSegments = item.relativePath.split(path.sep);
+    const segments = pathSegments.map((segment) => segment.toLowerCase());
+    const isComposerTemporaryDownload = item.entry.isFile()
+      && pathSegments.length === 2
+      && pathSegments[0] === 'composer'
+      && COMPOSER_TEMPORARY_DOWNLOAD.test(path.basename(item.relativePath));
+    if (segments.some((segment) => VENDOR_EXCLUDED_DIRECTORIES.has(segment))
+      || isComposerTemporaryDownload) {
       exclusions.push(item.relativePath);
     } else {
       included.push(item);
@@ -456,89 +471,351 @@ function validatePreconditions(paths) {
   };
 }
 
-function resetProductionOutput(paths) {
-  const checked = resolveAssemblyPaths(paths.toolingRoot, {
-    repos: {
-      viewer: path.relative(paths.toolingRoot, paths.viewerRoot),
-      admin: path.relative(paths.toolingRoot, paths.adminRoot),
-    },
-    staging: {
-      root: path.relative(paths.toolingRoot, paths.stagingRoot),
-      data: path.relative(paths.stagingRoot, paths.dataStagingRoot),
-      thumbnails: path.relative(paths.stagingRoot, paths.thumbnailStagingRoot),
-    },
-    output: { root: path.relative(paths.toolingRoot, paths.outputRoot) },
-  });
-  fs.rmSync(checked.outputRoot, { recursive: true, force: true });
+const ASSEMBLY_TRANSACTION_CONTRACT = 'freetv-tooling-production-assembly-v1';
+
+function pathEntryExists(candidate, fileSystem = fs) {
+  try {
+    fileSystem.lstatSync(candidate);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
-export function assembleProduction({ toolingRoot, config }) {
+function transactionPrefix(outputRoot) {
+  const basename = path.basename(outputRoot);
+  if (!/^[A-Za-z0-9._-]+$/u.test(basename) || basename === '.' || basename === '..') {
+    throw new Error(`Production output basename is unsafe for assembly transactions: ${basename}`);
+  }
+  return `.freetv-tooling-${basename}-assembly-`;
+}
+
+function createTransaction(paths, transactionId, fileSystem) {
+  if (!/^[a-f0-9]{24}$/u.test(transactionId)) {
+    throw new Error('Production assembly transaction ID is unsafe');
+  }
+  const parent = path.dirname(paths.outputRoot);
+  const prefix = transactionPrefix(paths.outputRoot);
+  fileSystem.mkdirSync(parent, { recursive: true });
+  if (fileSystem.lstatSync(parent).isSymbolicLink() || !fileSystem.lstatSync(parent).isDirectory()) {
+    throw new Error(`Production output parent is unsafe: ${parent}`);
+  }
+  const stem = `${prefix}${transactionId}`;
+  const transaction = {
+    contract: ASSEMBLY_TRANSACTION_CONTRACT,
+    id: transactionId,
+    outputRoot: paths.outputRoot,
+    claimPath: path.join(parent, `${prefix}claim`),
+    candidatePath: path.join(parent, `${stem}.candidate`),
+    backupPath: path.join(parent, `${stem}.backup`),
+    markerPath: path.join(parent, `${stem}.transaction.json`),
+  };
+  for (const candidate of [
+    transaction.claimPath,
+    transaction.candidatePath,
+    transaction.backupPath,
+    transaction.markerPath,
+  ]) {
+    if (path.dirname(candidate) !== parent || pathEntryExists(candidate, fileSystem)) {
+      if (candidate === transaction.claimPath) {
+        throw new Error(`Production assembly is already claimed or requires manual recovery: ${candidate}`);
+      }
+      throw new Error(`Production assembly transaction path collision: ${candidate}`);
+    }
+  }
+  try {
+    fileSystem.writeFileSync(
+      transaction.claimPath,
+      `${JSON.stringify(transaction, null, 2)}\n`,
+      { encoding: 'utf8', flag: 'wx', mode: 0o600 },
+    );
+  } catch (error) {
+    if (error.code === 'EEXIST') {
+      throw new Error(
+        `Production assembly is already claimed or requires manual recovery: ${transaction.claimPath}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+
+  const existing = fileSystem.readdirSync(parent).filter(
+    (name) => name.startsWith(prefix) && path.join(parent, name) !== transaction.claimPath,
+  );
+  if (existing.length > 0) {
+    throw new Error(
+      `Existing production assembly transaction requires manual inspection; claim retained at ${transaction.claimPath}: ${existing.map((name) => path.join(parent, name)).join(', ')}`,
+    );
+  }
+
+  let markerCreated = false;
+  try {
+    fileSystem.writeFileSync(
+      transaction.markerPath,
+      `${JSON.stringify(transaction, null, 2)}\n`,
+      { encoding: 'utf8', flag: 'wx', mode: 0o600 },
+    );
+    markerCreated = true;
+    fileSystem.mkdirSync(transaction.candidatePath, { mode: 0o700 });
+  } catch (error) {
+    let cleanupError;
+    try {
+      if (markerCreated) fileSystem.unlinkSync(transaction.markerPath);
+      fileSystem.unlinkSync(transaction.claimPath);
+    } catch (caught) {
+      cleanupError = caught;
+    }
+    if (cleanupError) {
+      throw new Error(
+        `Production assembly transaction setup failed and its exclusive claim was retained at ${transaction.claimPath}: ${error.message}; cleanup failed: ${cleanupError.message}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+  return transaction;
+}
+
+function readOwnedTransactionRecord(transaction, recordPath, label, fileSystem) {
+  if (!pathEntryExists(recordPath, fileSystem)
+    || fileSystem.lstatSync(recordPath).isSymbolicLink()
+    || !fileSystem.lstatSync(recordPath).isFile()) {
+    throw new Error(`Production assembly ${label} is missing or unsafe: ${recordPath}`);
+  }
+  let recorded;
+  try {
+    recorded = JSON.parse(fileSystem.readFileSync(recordPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`Production assembly ${label} is invalid: ${recordPath}: ${error.message}`);
+  }
+  for (const key of [
+    'contract', 'id', 'outputRoot', 'claimPath', 'candidatePath', 'backupPath', 'markerPath',
+  ]) {
+    if (recorded[key] !== transaction[key]) {
+      throw new Error(`Production assembly ${label} does not match this operation: ${recordPath}`);
+    }
+  }
+}
+
+function assertOwnedTransactionPath(transaction, target, fileSystem) {
+  readOwnedTransactionRecord(transaction, transaction.claimPath, 'ownership claim', fileSystem);
+  readOwnedTransactionRecord(transaction, transaction.markerPath, 'ownership marker', fileSystem);
+  if (![transaction.candidatePath, transaction.backupPath].includes(target)
+    || path.dirname(target) !== path.dirname(transaction.outputRoot)) {
+    throw new Error(`Refusing to clean an unowned production assembly path: ${target}`);
+  }
+  if (!pathEntryExists(target, fileSystem) || fileSystem.lstatSync(target).isSymbolicLink()
+    || !fileSystem.lstatSync(target).isDirectory()) {
+    throw new Error(`Owned production assembly path is missing or unsafe: ${target}`);
+  }
+}
+
+function removeOwnedTransactionPath(transaction, target, fileSystem) {
+  assertOwnedTransactionPath(transaction, target, fileSystem);
+  fileSystem.rmSync(target, { recursive: true, force: false });
+}
+
+function finishTransaction(transaction, fileSystem) {
+  readOwnedTransactionRecord(transaction, transaction.claimPath, 'ownership claim', fileSystem);
+  readOwnedTransactionRecord(transaction, transaction.markerPath, 'ownership marker', fileSystem);
+  fileSystem.unlinkSync(transaction.markerPath);
+  fileSystem.unlinkSync(transaction.claimPath);
+}
+
+function candidatePaths(paths, candidatePath) {
+  return { ...paths, outputRoot: candidatePath, publicRoot: path.join(candidatePath, 'public') };
+}
+
+function cleanCandidateAfterFailure(transaction, fileSystem, originalError, label) {
+  try {
+    if (pathEntryExists(transaction.candidatePath, fileSystem)) {
+      removeOwnedTransactionPath(transaction, transaction.candidatePath, fileSystem);
+    }
+    finishTransaction(transaction, fileSystem);
+  } catch (cleanupError) {
+    throw new Error(
+      `${label}: ${originalError.message}; candidate or transaction cleanup failed; inspect any remaining state at candidate ${transaction.candidatePath}, marker ${transaction.markerPath}, and claim ${transaction.claimPath}: ${cleanupError.message}`,
+      { cause: originalError },
+    );
+  }
+  throw new Error(`${label}; previous production output is intact: ${originalError.message}`, { cause: originalError });
+}
+
+export function assembleProduction({
+  toolingRoot,
+  config,
+  transactionId = crypto.randomBytes(12).toString('hex'),
+  transactionFileSystem = fs,
+  transactionHooks = {},
+}) {
   const paths = resolveAssemblyPaths(toolingRoot, config);
   const inputs = validatePreconditions(paths);
   const ownership = new OwnershipRegistry();
-  let outputStarted = false;
+  const transaction = createTransaction(paths, transactionId, transactionFileSystem);
+  const assemblyPaths = candidatePaths(paths, transaction.candidatePath);
+  let validation;
 
   try {
-    resetProductionOutput(paths);
-    outputStarted = true;
-    fs.mkdirSync(paths.publicRoot, { recursive: true });
+    fs.mkdirSync(assemblyPaths.publicRoot, { recursive: true });
 
-    copyTreeOwned(inputs.viewerDist, paths.publicRoot, 'Viewer', ownership);
-    copyTreeOwned(inputs.adminDist, path.join(paths.publicRoot, 'admin'), 'Admin', ownership);
-    copyTreeOwned(inputs.apiRoot, path.join(paths.publicRoot, 'api'), 'Server API', ownership, inputs.apiEntries.included);
-    copyFileOwned(path.join(paths.adminRoot, 'composer.json'), path.join(paths.outputRoot, 'composer.json'), 'Composer', ownership);
-    copyFileOwned(path.join(paths.adminRoot, 'composer.lock'), path.join(paths.outputRoot, 'composer.lock'), 'Composer', ownership);
+    copyTreeOwned(inputs.viewerDist, assemblyPaths.publicRoot, 'Viewer', ownership, undefined, transactionHooks);
+    copyTreeOwned(inputs.adminDist, path.join(assemblyPaths.publicRoot, 'admin'), 'Admin', ownership, undefined, transactionHooks);
+    copyTreeOwned(inputs.apiRoot, path.join(assemblyPaths.publicRoot, 'api'), 'Server API', ownership, inputs.apiEntries.included, transactionHooks);
+    copyFileOwned(path.join(paths.adminRoot, 'composer.json'), path.join(assemblyPaths.outputRoot, 'composer.json'), 'Composer', ownership, transactionHooks);
+    copyFileOwned(path.join(paths.adminRoot, 'composer.lock'), path.join(assemblyPaths.outputRoot, 'composer.lock'), 'Composer', ownership, transactionHooks);
     for (const relativePath of FIRST_RUN_RUNTIME_FILES) {
       copyFileOwned(
         path.join(paths.adminRoot, relativePath),
-        path.join(paths.outputRoot, relativePath),
+        path.join(assemblyPaths.outputRoot, relativePath),
         'Server First Run',
         ownership,
+        transactionHooks,
       );
     }
     copyTreeOwned(
       inputs.vendorRoot,
-      path.join(paths.outputRoot, 'vendor'),
+      path.join(assemblyPaths.outputRoot, 'vendor'),
       'Composer',
       ownership,
       inputs.vendorEntries.included,
+      transactionHooks,
     );
 
     for (const entry of inputs.dataManifest.files) {
       copyFileOwned(
         path.join(paths.dataStagingRoot, entry.path),
-        path.join(paths.publicRoot, entry.path),
+        path.join(assemblyPaths.publicRoot, entry.path),
         'Data Export',
         ownership,
+        transactionHooks,
       );
     }
     for (const entry of inputs.thumbnailManifest.files) {
       copyFileOwned(
         path.join(paths.thumbnailStagingRoot, entry.path),
-        path.join(paths.publicRoot, entry.path),
+        path.join(assemblyPaths.publicRoot, entry.path),
         'Thumbnail Export',
         ownership,
+        transactionHooks,
       );
     }
 
-    fs.mkdirSync(path.join(paths.outputRoot, 'temp/publication-undo'), { recursive: true });
-    fs.mkdirSync(path.join(paths.outputRoot, 'temp/thumbnail-undo'), { recursive: true });
+    fs.mkdirSync(path.join(assemblyPaths.outputRoot, 'temp/publication-undo'), { recursive: true });
+    fs.mkdirSync(path.join(assemblyPaths.outputRoot, 'temp/thumbnail-undo'), { recursive: true });
 
-    const validation = validateProductionOutput({
-      paths,
+    transactionHooks.beforeCandidateValidation?.({ paths: assemblyPaths, transaction });
+    validation = validateProductionOutput({
+      paths: assemblyPaths,
       dataManifest: inputs.dataManifest,
       thumbnailManifest: inputs.thumbnailManifest,
     });
-    return {
-      paths,
-      dataManifest: inputs.dataManifest,
-      thumbnailManifest: inputs.thumbnailManifest,
-      apiExclusions: inputs.apiEntries.exclusions,
-      vendorExclusions: inputs.vendorEntries.exclusions,
-      validation,
-    };
   } catch (error) {
-    if (outputStarted) resetProductionOutput(paths);
-    throw error;
+    cleanCandidateAfterFailure(
+      transaction,
+      transactionFileSystem,
+      error,
+      'Production assembly candidate failed; previous production output is intact',
+    );
   }
+
+  const hadPreviousOutput = pathEntryExists(paths.outputRoot, transactionFileSystem);
+  if (hadPreviousOutput && (transactionFileSystem.lstatSync(paths.outputRoot).isSymbolicLink()
+    || !transactionFileSystem.lstatSync(paths.outputRoot).isDirectory())) {
+    cleanCandidateAfterFailure(
+      transaction,
+      transactionFileSystem,
+      new Error(`Existing production output is not a safe directory: ${paths.outputRoot}`),
+      'Production assembly promotion refused',
+    );
+  }
+
+  if (hadPreviousOutput) {
+    try {
+      transactionHooks.beforeBackupRename?.({ paths, transaction });
+      transactionFileSystem.renameSync(paths.outputRoot, transaction.backupPath);
+    } catch (error) {
+      if (pathEntryExists(paths.outputRoot, transactionFileSystem)
+        && !pathEntryExists(transaction.backupPath, transactionFileSystem)) {
+        cleanCandidateAfterFailure(
+          transaction,
+          transactionFileSystem,
+          error,
+          'Production assembly could not move the previous output to backup',
+        );
+      }
+      throw new Error(
+        `Production assembly backup state is ambiguous; manual recovery required. Output: ${paths.outputRoot}; backup: ${transaction.backupPath}; candidate: ${transaction.candidatePath}; marker: ${transaction.markerPath}; claim: ${transaction.claimPath}: ${error.message}`,
+        { cause: error },
+      );
+    }
+  }
+
+  try {
+    transactionHooks.beforeCandidatePromotion?.({ paths, transaction });
+    transactionFileSystem.renameSync(transaction.candidatePath, paths.outputRoot);
+  } catch (promotionError) {
+    if (!hadPreviousOutput) {
+      throw new Error(
+        `Production assembly candidate promotion failed; candidate retained at ${transaction.candidatePath} with marker ${transaction.markerPath} and claim ${transaction.claimPath}: ${promotionError.message}`,
+        { cause: promotionError },
+      );
+    }
+    try {
+      if (pathEntryExists(paths.outputRoot, transactionFileSystem)) {
+        throw new Error(`Unexpected path appeared at the production output: ${paths.outputRoot}`);
+      }
+      transactionHooks.beforePreviousOutputRestore?.({ paths, transaction });
+      transactionFileSystem.renameSync(transaction.backupPath, paths.outputRoot);
+    } catch (restoreError) {
+      throw new Error(
+        `Production assembly promotion failed and recovery is incomplete; previous output backup retained at ${transaction.backupPath}; candidate retained at ${transaction.candidatePath}; marker retained at ${transaction.markerPath}; claim retained at ${transaction.claimPath}: ${promotionError.message}; restore failed: ${restoreError.message}`,
+        { cause: promotionError },
+      );
+    }
+    try {
+      if (pathEntryExists(transaction.candidatePath, transactionFileSystem)) {
+        removeOwnedTransactionPath(transaction, transaction.candidatePath, transactionFileSystem);
+      }
+      finishTransaction(transaction, transactionFileSystem);
+    } catch (cleanupError) {
+      throw new Error(
+        `Production assembly promotion failed and the previous output was restored, but transaction cleanup failed; inspect any remaining candidate or diagnostics at ${transaction.candidatePath}, ${transaction.markerPath}, and ${transaction.claimPath}: ${cleanupError.message}`,
+        { cause: promotionError },
+      );
+    }
+    throw new Error(
+      `Production assembly candidate promotion failed; previous production output was restored: ${promotionError.message}`,
+      { cause: promotionError },
+    );
+  }
+
+  if (hadPreviousOutput) {
+    try {
+      transactionHooks.beforeBackupCleanup?.({ paths, transaction });
+      removeOwnedTransactionPath(transaction, transaction.backupPath, transactionFileSystem);
+    } catch (cleanupError) {
+      throw new Error(
+        `Production assembly succeeded and the new output is valid, but backup cleanup failed and may have partially removed the previous backup; any remaining backup state is retained at ${transaction.backupPath}; diagnostics and exclusive claim are retained at ${transaction.markerPath} and ${transaction.claimPath}: ${cleanupError.message}`,
+        { cause: cleanupError },
+      );
+    }
+  }
+  try {
+    finishTransaction(transaction, transactionFileSystem);
+  } catch (cleanupError) {
+    throw new Error(
+      `Production assembly succeeded and the new output is valid, but transaction cleanup failed; retained claim or diagnostics require manual inspection at ${transaction.claimPath} and ${transaction.markerPath}: ${cleanupError.message}`,
+      { cause: cleanupError },
+    );
+  }
+
+  return {
+    paths,
+    dataManifest: inputs.dataManifest,
+    thumbnailManifest: inputs.thumbnailManifest,
+    apiExclusions: inputs.apiEntries.exclusions,
+    vendorExclusions: inputs.vendorEntries.exclusions,
+    validation,
+  };
 }

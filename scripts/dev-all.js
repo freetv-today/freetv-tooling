@@ -1,113 +1,130 @@
-import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEVELOPMENT_PRODUCTS,
   preflightDevelopmentPorts,
+  resolveAdminApiProxyTarget,
   resolveDevelopmentPort,
 } from './lib/development.js';
+import { startDevelopmentSupervisor } from './lib/development-supervisor.js';
+import { prepareViewerDevelopmentData } from './lib/viewer-development-data.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const toolingRoot = path.resolve(__dirname, '..');
-const config = JSON.parse(fs.readFileSync(path.resolve(toolingRoot, 'config/paths.json'), 'utf8'));
+const scriptPath = fileURLToPath(import.meta.url);
+const defaultToolingRoot = path.resolve(path.dirname(scriptPath), '..');
 
-const services = [
-  {
-    label: DEVELOPMENT_PRODUCTS.viewer,
-    port: resolveDevelopmentPort(process.env.VIEWER_PORT || config.dev.viewerPort, DEVELOPMENT_PRODUCTS.viewer),
-    script: path.resolve(__dirname, 'dev-viewer.js'),
-  },
-  {
-    label: DEVELOPMENT_PRODUCTS.admin,
-    port: resolveDevelopmentPort(process.env.ADMIN_PORT || config.dev.adminPort, DEVELOPMENT_PRODUCTS.admin),
-    script: path.resolve(__dirname, 'dev-admin.js'),
-  },
-  {
-    label: DEVELOPMENT_PRODUCTS.php,
-    port: resolveDevelopmentPort(process.env.PHP_PORT || config.dev.phpPort, DEVELOPMENT_PRODUCTS.php),
-    script: path.resolve(__dirname, 'dev-php.js'),
-  },
-];
+export const DEVELOPMENT_SELECTIONS = Object.freeze({
+  all: Object.freeze(['viewer', 'admin', 'php']),
+  viewer: Object.freeze(['viewer']),
+  admin: Object.freeze(['admin', 'php']),
+});
 
-function signalProcessTree(child, signal, force = false) {
-  if (!child.pid) return;
+function selectedServiceNames(selection) {
+  const names = DEVELOPMENT_SELECTIONS[selection];
+  if (!names) throw new Error(`Unsupported development service selection: ${selection}`);
+  return names;
+}
 
+export function createDevelopmentServices({
+  toolingRoot, config, environment = process.env, selection = 'all',
+}) {
+  const selected = selectedServiceNames(selection);
+  const common = {
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'inherit', 'inherit'],
+  };
+  const services = [];
+  if (selected.includes('viewer')) {
+    const viewerPort = resolveDevelopmentPort(
+      environment.VIEWER_PORT || config.dev.viewerPort, DEVELOPMENT_PRODUCTS.viewer,
+    );
+    services.push({
+      label: DEVELOPMENT_PRODUCTS.viewer, port: viewerPort, executable: 'npm',
+      args: ['run', 'dev', '--', '--host', '0.0.0.0', '--port', String(viewerPort), '--strictPort'],
+      options: { ...common, cwd: path.resolve(toolingRoot, config.repos.viewer), env: environment },
+    });
+  }
+  if (selected.includes('admin')) {
+    const adminPort = resolveDevelopmentPort(
+      environment.ADMIN_PORT || config.dev.adminPort, DEVELOPMENT_PRODUCTS.admin,
+    );
+    const phpPort = resolveDevelopmentPort(
+      environment.PHP_PORT || config.dev.phpPort, DEVELOPMENT_PRODUCTS.php,
+    );
+    services.push({
+      label: DEVELOPMENT_PRODUCTS.admin, port: adminPort, executable: 'npm',
+      args: ['run', 'dev', '--', '--host', '0.0.0.0', '--port', String(adminPort), '--strictPort'],
+      options: {
+        ...common,
+        cwd: path.resolve(toolingRoot, config.repos.admin),
+        env: {
+          ...environment,
+          VITE_API_PROXY_TARGET: resolveAdminApiProxyTarget({ environment, configuredPhpPort: phpPort }),
+        },
+      },
+    });
+  }
+  if (selected.includes('php')) {
+    const phpPort = resolveDevelopmentPort(
+      environment.PHP_PORT || config.dev.phpPort, DEVELOPMENT_PRODUCTS.php,
+    );
+    services.push({
+      label: DEVELOPMENT_PRODUCTS.php, port: phpPort, executable: 'php',
+      args: ['-S', `0.0.0.0:${phpPort}`, '-t', path.resolve(toolingRoot, config.repos.admin, 'public')],
+      options: {
+        ...common,
+        cwd: path.resolve(toolingRoot, config.repos.admin, 'public'),
+        env: { ...environment, PHP_CLI_SERVER_WORKERS: '4' },
+      },
+    });
+  }
+  return services;
+}
+
+export async function runDevelopmentEnvironment({
+  toolingRoot = defaultToolingRoot,
+  config = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'config/paths.json'), 'utf8')),
+  environment = process.env,
+  logger = console,
+  supervisor = startDevelopmentSupervisor,
+  preflight = preflightDevelopmentPorts,
+  spawnProcess,
+  signalTree,
+  waitForTimeout,
+  selection = 'all',
+  viewerDataPreparer = prepareViewerDevelopmentData,
+} = {}) {
+  const services = createDevelopmentServices({ toolingRoot, config, environment, selection });
+  logger.log('Starting FreeTV development environment:');
+  services.forEach(({ label, port }) => logger.log(`  ${label}: port ${port}`));
+  await preflight(services);
+  if (selection === 'all' || selection === 'viewer') {
+    await viewerDataPreparer({ toolingRoot, config, logger });
+  }
+  return supervisor({ services, preflight, spawnProcess, signalTree, waitForTimeout });
+}
+
+export async function runDevelopmentEnvironmentCli(options = {}) {
+  let session;
+  const signalSource = options.signalSource ?? process;
+  const onSigint = () => { void session?.stop({ kind: 'cancelled', signal: 'SIGINT', exitCode: 130 }); };
+  const onSigterm = () => { void session?.stop({ kind: 'cancelled', signal: 'SIGTERM', exitCode: 143 }); };
   try {
-    if (process.platform === 'win32') {
-      const args = ['/PID', String(child.pid), '/T'];
-      if (force) args.push('/F');
-      spawnSync('taskkill', args, { stdio: 'ignore' });
-    } else {
-      process.kill(-child.pid, signal);
-    }
+    session = await runDevelopmentEnvironment(options);
+    signalSource.once('SIGINT', onSigint);
+    signalSource.once('SIGTERM', onSigterm);
+    const result = await session.completion;
+    if (!result.stopped) (options.logger ?? console).error(`Development shutdown incomplete: ${result.unresolved.join(', ')}`);
+    return result.exitCode ?? 1;
   } catch (error) {
-    if (error.code !== 'ESRCH') child.kill(signal);
+    (options.logger ?? console).error(error.message);
+    return 1;
+  } finally {
+    signalSource.removeListener('SIGINT', onSigint);
+    signalSource.removeListener('SIGTERM', onSigterm);
   }
 }
 
-function waitForChild(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve) => child.once('exit', resolve));
-}
-
-let children = [];
-let shuttingDown = false;
-
-async function shutdown(exitCode) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-
-  children.forEach((child) => signalProcessTree(child, 'SIGTERM'));
-  const allExited = Promise.all(children.map(waitForChild));
-  const graceful = await Promise.race([
-    allExited.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
-  ]);
-
-  if (!graceful) {
-    children.forEach((child) => signalProcessTree(child, 'SIGKILL', true));
-    await Promise.race([
-      allExited,
-      new Promise((resolve) => setTimeout(resolve, 1000)),
-    ]);
-  }
-
-  process.exit(exitCode);
-}
-
-try {
-  await preflightDevelopmentPorts(services);
-} catch (error) {
-  console.error(error.message);
-  process.exitCode = 1;
-}
-
-if (process.exitCode !== 1) {
-  console.log('Starting FreeTV development environment:');
-  services.forEach(({ label, port }) => console.log(`  ${label}: port ${port}`));
-
-  children = services.map(({ label, script }) => {
-    const child = spawn(process.execPath, [script], {
-      detached: process.platform !== 'win32',
-      env: { ...process.env, FREETV_SKIP_PORT_PREFLIGHT: '1' },
-      stdio: 'inherit',
-    });
-
-    child.on('error', (error) => {
-      console.error(`${label} could not start.\n\n${error.message}`);
-      void shutdown(1);
-    });
-    child.on('exit', (code, signal) => {
-      if (shuttingDown) return;
-      const detail = signal ? `signal ${signal}` : `code ${code ?? 1}`;
-      console.error(`${label} exited with ${detail}. Stopping the FreeTV development environment.`);
-      void shutdown(code ?? 1);
-    });
-    return child;
-  });
-
-  process.on('SIGINT', () => void shutdown(130));
-  process.on('SIGTERM', () => void shutdown(143));
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  process.exitCode = await runDevelopmentEnvironmentCli();
 }

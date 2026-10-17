@@ -198,3 +198,33 @@ test('safe staging reset cannot delete outside Tooling-owned root', (t) => {
   );
   assert.equal(fs.readFileSync(path.join(outside, 'important.txt'), 'utf8'), 'keep');
 });
+
+test('symbolic-link staging roots are refused without affecting their targets', { skip: process.platform === 'win32' }, (t) => {
+  const toolingRoot = temporaryRoot(t);
+  const outside = path.join(toolingRoot, 'outside');
+  fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(outside, 'keep.txt'), 'keep');
+  fs.symlinkSync(outside, path.join(toolingRoot, 'staging'), 'dir');
+  assert.throws(
+    () => resetStaging(path.join(toolingRoot, 'staging'), path.join(toolingRoot, 'staging')),
+    /symbolic-link Tooling staging root/,
+  );
+  assert.equal(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8'), 'keep');
+});
+
+test('export failure remains visible when staging cleanup also fails safely', { skip: process.platform === 'win32' }, async (t) => {
+  const toolingRoot = temporaryRoot(t);
+  const stagingRoot = path.join(toolingRoot, 'staging');
+  const outside = path.join(toolingRoot, 'outside');
+  fs.mkdirSync(outside);
+  await assert.rejects(stageAdminExports({
+    toolingRoot,
+    config: workflowConfig(),
+    commandRunner: async () => {
+      fs.rmSync(stagingRoot, { recursive: true });
+      fs.symlinkSync(outside, stagingRoot, 'dir');
+      throw new Error('original export failure');
+    },
+  }), /original export failure.*staging cleanup also failed.*symbolic-link/su);
+  assert.equal(fs.existsSync(outside), true);
+});

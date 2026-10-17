@@ -9,22 +9,31 @@ import {
 
 /* global process */
 
-const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const snapshotPath = process.argv[2];
+const scriptPath = fileURLToPath(import.meta.url);
+const defaultToolingRoot = path.resolve(path.dirname(scriptPath), '..');
 
-if (!snapshotPath || process.argv.length !== 3) {
-  console.error('Usage: npm run content:compare -- <snapshot-directory-or-zip>');
-  process.exitCode = 1;
-} else {
+export function runContentCompareCli({
+  args = process.argv.slice(2), toolingRoot = defaultToolingRoot,
+  configLoader = (root) => JSON.parse(fs.readFileSync(path.join(root, 'config/paths.json'), 'utf8')),
+  comparator = runContentComparison, formatter = formatComparisonReport,
+  logger = console, output = process.stdout,
+} = {}) {
+  if (args.length !== 1 || !args[0]) {
+    logger.error('Usage: npm run content:compare -- <snapshot-directory-or-zip>');
+    return 1;
+  }
   try {
-    const config = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'config/paths.json'), 'utf8'));
-    const comparison = runContentComparison({
-      snapshotPath,
+    const config = configLoader(toolingRoot);
+    const comparison = comparator({
+      snapshotPath: args[0],
       dataRoot: resolveLocalDataPath(toolingRoot, config),
     });
-    process.stdout.write(formatComparisonReport(comparison));
+    output.write(formatter(comparison));
+    return 0;
   } catch (error) {
-    console.error(`Content comparison failed: ${error.message}`);
-    process.exitCode = 1;
+    logger.error(`Content comparison failed: ${error.message}`);
+    return 1;
   }
 }
+
+if (path.resolve(process.argv[1] || '') === scriptPath) process.exitCode = runContentCompareCli();

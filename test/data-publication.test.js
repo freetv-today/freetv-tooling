@@ -10,6 +10,7 @@ import {
   createPublicationCandidate,
   promotePublicationCandidate,
   publishDataset,
+  syncSqlPackagesToAdmin,
 } from '../scripts/lib/data-publication.js';
 import { runDataPublishCli } from '../scripts/data-publish.js';
 
@@ -177,6 +178,18 @@ function candidateFixture(t) {
   return { ...expected, paths, artifacts, snapshot, candidate };
 }
 
+function fsWith(overrides) {
+  return new Proxy(fs, {
+    get(target, property) { return overrides[property] ?? target[property]; },
+  });
+}
+
+function seedAdminSql(adminRoot, prefix = 'old') {
+  const sqlRoot = path.join(adminRoot, 'sql');
+  for (const filename of SQL_PACKAGE_FILES) write(path.join(sqlRoot, filename), `-- ${prefix} ${filename}\n`);
+  return sqlRoot;
+}
+
 test('successful publication requires the gate, records snapshot provenance, and replaces managed paths', async (t) => {
   const expected = fixture(t);
   let gatePassed = false;
@@ -208,7 +221,12 @@ test('successful publication requires the gate, records snapshot provenance, and
   assert.equal(fs.readFileSync(path.join(expected.dataRoot, '.git/HEAD'), 'utf8'), 'ref: refs/heads/main\n');
   for (const filename of SQL_PACKAGE_FILES) {
     assert.equal(fs.readFileSync(path.join(expected.dataRoot, filename), 'utf8'), `-- ${filename}\n`);
+    assert.equal(fs.readFileSync(path.join(expected.adminRoot, 'sql', filename), 'utf8'), `-- ${filename}\n`);
   }
+  assert.equal(fs.readdirSync(path.join(expected.adminRoot, 'sql'))
+    .some((name) => name.startsWith('.freetv-data-publish-')), false);
+  assert.equal(result.dataRoot, expected.dataRoot);
+  assert.equal(result.adminSqlRoot, path.join(expected.adminRoot, 'sql'));
   assert.equal(fs.existsSync(path.join(expected.toolingRoot, `staging/data-validation-${RUN_ID}`)), false);
   assert.equal(fs.readFileSync(path.join(expected.toolingRoot, 'staging/keep.txt'), 'utf8'), 'keep');
 });
@@ -390,6 +408,145 @@ test('promotion failure restores every managed path and removes transaction stat
   assert.equal(injected, true);
   assert.deepEqual(treeSnapshot(expected.dataRoot), before);
   assert.equal(fs.existsSync(path.join(expected.dataRoot, `.freetv-publication-${RUN_ID}`)), false);
+});
+
+test('Admin SQL preparation failure leaves published Data in place and previous Admin SQL unchanged', async (t) => {
+  const expected = fixture(t);
+  const adminSqlRoot = seedAdminSql(expected.adminRoot);
+  const adminBefore = treeSnapshot(adminSqlRoot);
+  let copies = 0;
+  const fileSystem = fsWith({
+    copyFileSync(source, destination) {
+      copies += 1;
+      if (copies === 2) throw new Error('injected Admin SQL preparation failure');
+      return fs.copyFileSync(source, destination);
+    },
+  });
+
+  await assert.rejects(
+    publishDataset({
+      toolingRoot: expected.toolingRoot,
+      config: expected.config,
+      snapshotPath: expected.snapshotRoot,
+      validationGate: async () => {},
+      artifactGenerator: async ({ paths }) => writeArtifacts(paths),
+      sqlSynchronizer: (options) => syncSqlPackagesToAdmin({ ...options, fileSystem }),
+      logger: { log() {}, warn() {} },
+      runId: RUN_ID,
+      clock: () => new Date(GENERATED_AT),
+    }),
+    /Dataset was published locally, but FreeTV Admin SQL sync failed.*Could not prepare.*injected Admin SQL preparation failure/su,
+  );
+  assert.equal(fs.existsSync(path.join(expected.dataRoot, 'playlists/alpha.json')), true);
+  assert.equal(fs.existsSync(path.join(expected.dataRoot, 'playlists/stale.json')), false);
+  assert.deepEqual(treeSnapshot(adminSqlRoot), adminBefore);
+});
+
+test('Admin SQL promotion failure rolls back Admin while leaving published Data unchanged', async (t) => {
+  const expected = fixture(t);
+  const adminSqlRoot = seedAdminSql(expected.adminRoot);
+  for (const filename of SQL_PACKAGE_FILES) write(path.join(expected.dataRoot, filename), `-- new ${filename}\n`);
+  const adminBefore = treeSnapshot(adminSqlRoot);
+  const dataBefore = treeSnapshot(expected.dataRoot);
+  const transactionRoot = path.join(adminSqlRoot, `.freetv-data-publish-${RUN_ID}`);
+  const failedPrepared = path.join(transactionRoot, 'new', SQL_PACKAGE_FILES[1]);
+  const fileSystem = fsWith({
+    renameSync(source, destination) {
+      if (source === failedPrepared && destination === path.join(adminSqlRoot, SQL_PACKAGE_FILES[1])) {
+        throw new Error('injected Admin SQL promotion failure');
+      }
+      return fs.renameSync(source, destination);
+    },
+  });
+  assert.throws(
+    () => syncSqlPackagesToAdmin({ dataRoot: expected.dataRoot, adminSqlRoot, runId: RUN_ID, fileSystem }),
+    /sync failed and was rolled back.*injected Admin SQL promotion failure/su,
+  );
+  assert.deepEqual(treeSnapshot(adminSqlRoot), adminBefore);
+  assert.deepEqual(treeSnapshot(expected.dataRoot), dataBefore);
+  assert.equal(fs.existsSync(transactionRoot), false);
+});
+
+test('incomplete Admin SQL rollback retains recovery state and blocks a subsequent sync', async (t) => {
+  const expected = fixture(t);
+  const adminSqlRoot = seedAdminSql(expected.adminRoot);
+  for (const filename of SQL_PACKAGE_FILES) write(path.join(expected.dataRoot, filename), `-- new ${filename}\n`);
+  const transactionRoot = path.join(adminSqlRoot, `.freetv-data-publish-${RUN_ID}`);
+  const failedPrepared = path.join(transactionRoot, 'new', SQL_PACKAGE_FILES[1]);
+  const firstBackup = path.join(transactionRoot, 'old', SQL_PACKAGE_FILES[0]);
+  let promotionFailed = false;
+  const fileSystem = fsWith({
+    renameSync(source, destination) {
+      if (source === failedPrepared && destination === path.join(adminSqlRoot, SQL_PACKAGE_FILES[1])) {
+        promotionFailed = true;
+        throw new Error('injected Admin SQL promotion failure');
+      }
+      if (promotionFailed && source === firstBackup) throw new Error('injected Admin SQL rollback failure');
+      return fs.renameSync(source, destination);
+    },
+  });
+  assert.throws(
+    () => syncSqlPackagesToAdmin({ dataRoot: expected.dataRoot, adminSqlRoot, runId: RUN_ID, fileSystem }),
+    (error) => error.message.includes('rollback was incomplete') && error.message.includes(transactionRoot),
+  );
+  assert.equal(fs.existsSync(transactionRoot), true);
+  assert.throws(
+    () => syncSqlPackagesToAdmin({ dataRoot: expected.dataRoot, adminSqlRoot, runId: '121212121212' }),
+    /Unresolved Admin SQL sync transaction requires inspection/,
+  );
+});
+
+test('Admin SQL cleanup failure preserves installed SQL and reports potentially partial recovery state', (t) => {
+  const expected = fixture(t);
+  const adminSqlRoot = seedAdminSql(expected.adminRoot);
+  for (const filename of SQL_PACKAGE_FILES) write(path.join(expected.dataRoot, filename), `-- new ${filename}\n`);
+  const transactionRoot = path.join(adminSqlRoot, `.freetv-data-publish-${RUN_ID}`);
+  const fileSystem = fsWith({
+    rmSync(removedPath, options) {
+      if (removedPath === transactionRoot) {
+        fs.rmSync(path.join(transactionRoot, 'old', SQL_PACKAGE_FILES[0]));
+        throw new Error('injected partial Admin cleanup failure');
+      }
+      return fs.rmSync(removedPath, options);
+    },
+  });
+  assert.throws(
+    () => syncSqlPackagesToAdmin({ dataRoot: expected.dataRoot, adminSqlRoot, runId: RUN_ID, fileSystem }),
+    /packages were synced.*cleanup failed and may have partially removed recovery state/su,
+  );
+  for (const filename of SQL_PACKAGE_FILES) {
+    assert.equal(fs.readFileSync(path.join(adminSqlRoot, filename), 'utf8'), `-- new ${filename}\n`);
+  }
+  assert.equal(fs.existsSync(transactionRoot), true);
+});
+
+test('incomplete Data rollback retains transaction recovery state', (t) => {
+  const expected = candidateFixture(t);
+  const transactionRoot = path.join(expected.dataRoot, `.freetv-publication-${RUN_ID}`);
+  const failedPrepared = path.join(transactionRoot, 'new', 'thumbs');
+  const configBackup = path.join(transactionRoot, 'old', 'config.json');
+  let promotionFailed = false;
+  const fileSystem = fsWith({
+    renameSync(source, destination) {
+      if (source === failedPrepared && destination === path.join(expected.dataRoot, 'thumbs')) {
+        promotionFailed = true;
+        throw new Error('injected Data promotion failure');
+      }
+      if (promotionFailed && source === configBackup) throw new Error('injected Data rollback failure');
+      return fs.renameSync(source, destination);
+    },
+  });
+  assert.throws(
+    () => promotePublicationCandidate({
+      candidateRoot: expected.candidate.candidateRoot,
+      dataRoot: expected.dataRoot,
+      runId: RUN_ID,
+      context: expected.candidate.context,
+      fileSystem,
+    }),
+    (error) => error.message.includes('rollback was incomplete') && error.message.includes(transactionRoot),
+  );
+  assert.equal(fs.existsSync(transactionRoot), true);
 });
 
 test('CLI has one mandatory snapshot contract, reports validation failure, and performs no Git behavior', async () => {

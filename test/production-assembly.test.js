@@ -122,6 +122,70 @@ function createWorkspace(t) {
   };
 }
 
+function transactionPaths(fixture, id) {
+  const prefix = `.freetv-tooling-${path.basename(fixture.outputRoot)}-assembly-`;
+  const stem = `${prefix}${id}`;
+  const parent = path.dirname(fixture.outputRoot);
+  return {
+    claimPath: path.join(parent, `${prefix}claim`),
+    candidatePath: path.join(parent, `${stem}.candidate`),
+    backupPath: path.join(parent, `${stem}.backup`),
+    markerPath: path.join(parent, `${stem}.transaction.json`),
+  };
+}
+
+function transactionArtifacts(fixture) {
+  const prefix = `.freetv-tooling-${path.basename(fixture.outputRoot)}-assembly-`;
+  return fs.readdirSync(path.dirname(fixture.outputRoot)).filter((entry) => entry.startsWith(prefix)).sort();
+}
+
+function treeSnapshot(root) {
+  if (!fs.existsSync(root)) return null;
+  const snapshot = [];
+  function visit(current, relative = '.') {
+    const stats = fs.lstatSync(current);
+    if (stats.isSymbolicLink()) {
+      snapshot.push(['symlink', relative, fs.readlinkSync(current)]);
+      return;
+    }
+    if (stats.isFile()) {
+      snapshot.push(['file', relative, sha256(fs.readFileSync(current))]);
+      return;
+    }
+    snapshot.push(['directory', relative]);
+    for (const entry of fs.readdirSync(current).sort()) visit(path.join(current, entry), path.join(relative, entry));
+  }
+  visit(root);
+  return snapshot;
+}
+
+function fileSystemFailingRename(predicate, message) {
+  return new Proxy(fs, {
+    get(target, property) {
+      if (property !== 'renameSync') return target[property];
+      return (source, destination) => {
+        if (predicate(source, destination)) throw new Error(message);
+        return target.renameSync(source, destination);
+      };
+    },
+  });
+}
+
+function fileSystemFailingRemoval(predicate, removeBeforeFailure, message) {
+  return new Proxy(fs, {
+    get(target, property) {
+      if (property !== 'rmSync') return target[property];
+      return (removedPath, options) => {
+        if (predicate(removedPath)) {
+          removeBeforeFailure(removedPath);
+          throw new Error(message);
+        }
+        return target.rmSync(removedPath, options);
+      };
+    },
+  });
+}
+
 test('valid production assembly succeeds', (t) => {
   const fixture = createWorkspace(t);
   const result = assembleProduction(fixture);
@@ -142,6 +206,297 @@ test('valid production assembly succeeds', (t) => {
       fs.readFileSync(path.join(fixture.adminRoot, relativePath)),
     );
   }
+  assert.equal(result.paths.outputRoot, fixture.outputRoot);
+  assert.deepEqual(transactionArtifacts(fixture), []);
+});
+
+test('existing production output is replaced transactionally and leaves no artifacts', (t) => {
+  const fixture = createWorkspace(t);
+  assembleProduction({ ...fixture, transactionId: '111111111111111111111111' });
+  writeFile(fixture.outputRoot, 'old-release-sentinel.txt', 'old release');
+  writeFile(fixture.viewerRoot, 'dist/index.html', '<!doctype html><title>new release</title>');
+
+  const result = assembleProduction({ ...fixture, transactionId: '222222222222222222222222' });
+
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'old-release-sentinel.txt')), false);
+  assert.match(fs.readFileSync(path.join(fixture.outputRoot, 'public/index.html'), 'utf8'), /new release/);
+  assert.equal(result.paths.outputRoot, fixture.outputRoot);
+  assert.deepEqual(transactionArtifacts(fixture), []);
+});
+
+test('an exclusive claim deterministically rejects a concurrent assembly for the same output', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  let concurrentError;
+  let attempted = false;
+
+  const result = assembleProduction({
+    ...fixture,
+    transactionId: '010101010101010101010101',
+    transactionHooks: {
+      afterCandidateCopy() {
+        if (attempted) return;
+        attempted = true;
+        try {
+          assembleProduction({ ...fixture, transactionId: '020202020202020202020202' });
+        } catch (error) {
+          concurrentError = error;
+        }
+        assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+      },
+    },
+  });
+
+  assert.match(concurrentError?.message ?? '', /already claimed or requires manual recovery/);
+  assert.equal(result.paths.outputRoot, fixture.outputRoot);
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/index.html')), true);
+  assert.deepEqual(transactionArtifacts(fixture), []);
+});
+
+test('mid-copy failure preserves the previous output byte-for-byte and cleans its transaction', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  let copies = 0;
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: '333333333333333333333333',
+      transactionHooks: {
+        afterCandidateCopy() {
+          copies += 1;
+          if (copies === 3) throw new Error('injected copy failure');
+        },
+      },
+    }),
+    /candidate failed.*previous production output is intact.*injected copy failure/,
+  );
+  assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+  assert.deepEqual(transactionArtifacts(fixture), []);
+});
+
+test('candidate validation failure occurs before promotion and preserves the previous output', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: '444444444444444444444444',
+      transactionHooks: {
+        beforeCandidateValidation({ paths }) {
+          writeFile(paths.outputRoot, 'unexpected.txt', 'invalid candidate');
+        },
+      },
+    }),
+    /candidate failed.*unexpected root entries: unexpected\.txt/,
+  );
+  assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+  assert.deepEqual(transactionArtifacts(fixture), []);
+});
+
+test('backup rename failure preserves the previous output and cleans the candidate', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  const transaction = transactionPaths(fixture, '555555555555555555555555');
+  const transactionFileSystem = fileSystemFailingRename(
+    (source, destination) => source === fixture.outputRoot && destination === transaction.backupPath,
+    'injected backup rename failure',
+  );
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: '555555555555555555555555',
+      transactionFileSystem,
+    }),
+    /could not move the previous output to backup.*previous production output is intact.*injected backup rename failure/,
+  );
+  assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+  assert.deepEqual(transactionArtifacts(fixture), []);
+});
+
+test('candidate promotion failure restores the previous output and cleans recovery artifacts', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  const transaction = transactionPaths(fixture, '666666666666666666666666');
+  const transactionFileSystem = fileSystemFailingRename(
+    (source, destination) => source === transaction.candidatePath && destination === fixture.outputRoot,
+    'injected promotion failure',
+  );
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: '666666666666666666666666',
+      transactionFileSystem,
+    }),
+    /candidate promotion failed; previous production output was restored.*injected promotion failure/,
+  );
+  assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+  assert.deepEqual(transactionArtifacts(fixture), []);
+});
+
+test('failed promotion and failed restore retain exact recovery paths', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  const transaction = transactionPaths(fixture, '777777777777777777777777');
+  const transactionFileSystem = fileSystemFailingRename(
+    (source, destination) => (source === transaction.candidatePath && destination === fixture.outputRoot)
+      || (source === transaction.backupPath && destination === fixture.outputRoot),
+    'injected rename failure',
+  );
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: '777777777777777777777777',
+      transactionFileSystem,
+    }),
+    (error) => error.message.includes('recovery is incomplete')
+      && error.message.includes(transaction.backupPath)
+      && error.message.includes(transaction.candidatePath)
+      && error.message.includes(transaction.markerPath),
+  );
+  assert.equal(fs.existsSync(fixture.outputRoot), false);
+  assert.deepEqual(treeSnapshot(transaction.backupPath), before);
+  assert.equal(fs.existsSync(transaction.candidatePath), true);
+  assert.equal(fs.existsSync(transaction.markerPath), true);
+});
+
+test('backup cleanup failure keeps the valid new output and retains the previous backup', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  const transaction = transactionPaths(fixture, '888888888888888888888888');
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: '888888888888888888888888',
+      transactionHooks: {
+        beforeBackupCleanup() { throw new Error('injected backup cleanup failure'); },
+      },
+    }),
+    /new output is valid, but backup cleanup failed.*injected backup cleanup failure/,
+  );
+  assert.deepEqual(treeSnapshot(transaction.backupPath), before);
+  assert.equal(fs.existsSync(transaction.markerPath), true);
+  assert.equal(fs.existsSync(transaction.claimPath), true);
+  assert.equal(fs.existsSync(transaction.candidatePath), false);
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/index.html')), true);
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'keep.txt')), false);
+});
+
+test('partial backup deletion is reported without claiming the previous backup is intact', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'removed-during-cleanup.txt', 'old file one');
+  writeFile(fixture.outputRoot, 'still-recoverable.txt', 'old file two');
+  const transaction = transactionPaths(fixture, '030303030303030303030303');
+  const transactionFileSystem = fileSystemFailingRemoval(
+    (removedPath) => removedPath === transaction.backupPath,
+    (backupPath) => fs.rmSync(path.join(backupPath, 'removed-during-cleanup.txt')),
+    'injected partial backup deletion failure',
+  );
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: '030303030303030303030303',
+      transactionFileSystem,
+    }),
+    (error) => error.message.includes('new output is valid')
+      && error.message.includes('may have partially removed the previous backup')
+      && error.message.includes(transaction.backupPath)
+      && error.message.includes(transaction.markerPath)
+      && error.message.includes(transaction.claimPath),
+  );
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'public/index.html')), true);
+  assert.equal(fs.existsSync(path.join(transaction.backupPath, 'removed-during-cleanup.txt')), false);
+  assert.equal(fs.readFileSync(path.join(transaction.backupPath, 'still-recoverable.txt'), 'utf8'), 'old file two');
+  assert.equal(fs.existsSync(transaction.markerPath), true);
+  assert.equal(fs.existsSync(transaction.claimPath), true);
+});
+
+test('an existing candidate-name collision is refused without modification or automatic cleanup', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  const stale = transactionPaths(fixture, '999999999999999999999999');
+  writeFile(stale.candidatePath, 'unrelated.txt', 'retain me');
+  const staleBefore = treeSnapshot(stale.candidatePath);
+
+  assert.throws(
+    () => assembleProduction({ ...fixture, transactionId: 'aaaaaaaaaaaaaaaaaaaaaaaa' }),
+    /Existing production assembly transaction requires manual inspection/,
+  );
+  assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+  assert.deepEqual(treeSnapshot(stale.candidatePath), staleBefore);
+});
+
+test('an existing backup-name collision is refused without modification or automatic cleanup', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  const stale = transactionPaths(fixture, 'eeeeeeeeeeeeeeeeeeeeeeee');
+  writeFile(stale.backupPath, 'recoverable.txt', 'retain me');
+  const staleBefore = treeSnapshot(stale.backupPath);
+
+  assert.throws(
+    () => assembleProduction({ ...fixture, transactionId: 'ffffffffffffffffffffffff' }),
+    /Existing production assembly transaction requires manual inspection/,
+  );
+  assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+  assert.deepEqual(treeSnapshot(stale.backupPath), staleBefore);
+});
+
+test('reserved transaction symlinks are refused and left untouched', (t) => {
+  const fixture = createWorkspace(t);
+  const protectedRoot = path.join(fixture.workspaceRoot, 'protected');
+  writeFile(protectedRoot, 'keep.txt', 'do not touch');
+  const protectedBefore = treeSnapshot(protectedRoot);
+  const stale = transactionPaths(fixture, 'bbbbbbbbbbbbbbbbbbbbbbbb');
+  fs.symlinkSync(protectedRoot, stale.backupPath, 'dir');
+
+  assert.throws(
+    () => assembleProduction({ ...fixture, transactionId: 'cccccccccccccccccccccccc' }),
+    /Existing production assembly transaction requires manual inspection/,
+  );
+  assert.equal(fs.lstatSync(stale.backupPath).isSymbolicLink(), true);
+  assert.deepEqual(treeSnapshot(protectedRoot), protectedBefore);
+});
+
+test('cleanup requires an exact valid ownership marker and never deletes on prefix alone', (t) => {
+  const fixture = createWorkspace(t);
+  writeFile(fixture.outputRoot, 'keep.txt', 'previous output');
+  const before = treeSnapshot(fixture.outputRoot);
+  const transaction = transactionPaths(fixture, 'dddddddddddddddddddddddd');
+  let injected = false;
+
+  assert.throws(
+    () => assembleProduction({
+      ...fixture,
+      transactionId: 'dddddddddddddddddddddddd',
+      transactionHooks: {
+        afterCandidateCopy() {
+          if (injected) return;
+          injected = true;
+          fs.writeFileSync(transaction.markerPath, '{"unowned":true}\n');
+          throw new Error('injected marker corruption');
+        },
+      },
+    }),
+    /candidate or transaction cleanup failed.*ownership marker does not match this operation/,
+  );
+  assert.deepEqual(treeSnapshot(fixture.outputRoot), before);
+  assert.equal(fs.existsSync(transaction.candidatePath), true);
+  assert.equal(fs.existsSync(transaction.markerPath), true);
 });
 
 test('missing First Run source fails before replacing existing output', (t) => {
@@ -150,6 +505,7 @@ test('missing First Run source fails before replacing existing output', (t) => {
   fs.rmSync(path.join(fixture.adminRoot, 'resources/bootstrap/fresh.json'));
   assert.throws(() => assembleProduction(fixture), /Server First Run runtime input.*fresh\.json.*is missing/);
   assert.equal(fs.readFileSync(path.join(fixture.outputRoot, 'keep.txt'), 'utf8'), 'keep');
+  assert.deepEqual(transactionArtifacts(fixture), []);
 });
 
 test('missing assembled First Run input fails validation', (t) => {
@@ -172,6 +528,7 @@ test('missing Viewer dist fails before replacing existing output', (t) => {
   fs.rmSync(path.join(fixture.viewerRoot, 'dist'), { recursive: true });
   assert.throws(() => assembleProduction(fixture), /Viewer dist is missing/);
   assert.equal(fs.readFileSync(path.join(fixture.outputRoot, 'keep.txt'), 'utf8'), 'keep');
+  assert.deepEqual(transactionArtifacts(fixture), []);
 });
 
 test('invalid Viewer dist fails', (t) => {
@@ -265,6 +622,44 @@ test('.env and denied API content are not copied', (t) => {
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'vendor/package/tools')), false);
   assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'vendor/package/src/Dependency.php')), true);
   assert.ok(result.apiExclusions.includes('beacon.php'));
+});
+
+test('only exact Composer temporary downloads are excluded without changing vendor sources', (t) => {
+  const fixture = createWorkspace(t);
+  const firstTemporary = writeFile(
+    fixture.adminRoot,
+    'vendor/composer/tmp-1b31f7b6e47d87b96c35b925677afa0f.zip~',
+    '',
+  );
+  const secondTemporary = writeFile(
+    fixture.adminRoot,
+    'vendor/composer/tmp-a0.zip~',
+    '',
+  );
+  writeFile(fixture.adminRoot, 'vendor/composer/installed.php', '<?php return [];');
+  writeFile(fixture.adminRoot, 'vendor/package/tmp-deadbeef.zip~', 'outside composer');
+  writeFile(fixture.adminRoot, 'vendor/composer/tmp-NOT-HEX.zip~', 'nonmatching');
+
+  const result = assembleProduction(fixture);
+
+  for (const temporary of [firstTemporary, secondTemporary]) {
+    assert.equal(fs.existsSync(temporary), true);
+    assert.equal(
+      fs.existsSync(path.join(fixture.outputRoot, 'vendor/composer', path.basename(temporary))),
+      false,
+    );
+  }
+  assert.equal(fs.readFileSync(path.join(fixture.outputRoot, 'vendor/autoload.php'), 'utf8'), '<?php');
+  assert.equal(
+    fs.readFileSync(path.join(fixture.outputRoot, 'vendor/composer/installed.php'), 'utf8'),
+    '<?php return [];',
+  );
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'vendor/package/tmp-deadbeef.zip~')), true);
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'vendor/composer/tmp-NOT-HEX.zip~')), true);
+  assert.deepEqual(result.vendorExclusions.filter((entry) => entry.endsWith('.zip~')).sort(), [
+    path.join('composer', 'tmp-1b31f7b6e47d87b96c35b925677afa0f.zip~'),
+    path.join('composer', 'tmp-a0.zip~'),
+  ]);
 });
 
 test('existing Server temp and Undo state are not copied', (t) => {

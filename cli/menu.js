@@ -1,0 +1,359 @@
+import { runBuildAction, runDiagnosticAction } from './actions.js';
+import { runCleanupAction } from './cleanup-actions.js';
+import { launchDevelopmentTerminal } from './development-terminal.js';
+import { createResultPresentation } from './presentation.js';
+import { runDatasetAction, runProductionAction } from './workflow-actions.js';
+
+export const MAIN_MENU_OPTIONS = Object.freeze([
+  { value: 'dev', label: 'Run Apps Locally (Dev)' },
+  { value: 'build-local', label: 'Build Apps Locally' },
+  { value: 'build-production', label: 'Build for Production' },
+  { value: 'dataset', label: 'Dataset Operations' },
+  { value: 'cleanup', label: 'Cleanup Tools' },
+  { value: 'diagnostics', label: 'Tests & Diagnostics' },
+  { value: 'exit', label: 'Exit' },
+]);
+
+export const DIAGNOSTICS_MENU_OPTIONS = Object.freeze([
+  { value: 'status', label: 'Tooling Status' },
+  { value: 'verify', label: 'Verify Production Assembly' },
+  { value: 'validate', label: 'Validate Dataset' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+export const DEVELOPMENT_MENU_OPTIONS = Object.freeze([
+  { value: 'all', label: 'Start Entire Dev Environment (Viewer + Admin + PHP)' },
+  { value: 'viewer', label: 'Start Dev Viewer' },
+  { value: 'admin', label: 'Start Dev Admin Dashboard (Admin + PHP)' },
+  { value: 'viewer-install', label: 'Install Viewer Development Data' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+export const BUILD_MENU_OPTIONS = Object.freeze([
+  { value: 'viewer', label: 'Build Viewer' },
+  { value: 'admin', label: 'Build Admin' },
+  { value: 'both', label: 'Build Both' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+export const PRODUCTION_MENU_OPTIONS = Object.freeze([
+  { value: 'complete', label: 'Complete Production Build' },
+  { value: 'advanced', label: 'Advanced' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+export const ADVANCED_PRODUCTION_MENU_OPTIONS = Object.freeze([
+  { value: 'stage', label: 'Stage Admin Exports' },
+  { value: 'assemble', label: 'Assemble Production Output' },
+  { value: 'verify', label: 'Verify Production Output' },
+  { value: 'back', label: 'Back to Build for Production' },
+]);
+
+export const DATASET_MENU_OPTIONS = Object.freeze([
+  { value: 'validate', label: 'Validate Dataset' },
+  { value: 'compare', label: 'Compare Snapshot' },
+  { value: 'publish', label: 'Publish Snapshot to Local Data Repository' },
+  { value: 'release', label: 'Build Release Packages' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+export const CLEANUP_MENU_OPTIONS = Object.freeze([
+  { value: 'thumbs-dry-run', label: 'Find Unused Thumbnails (Dry Run)' },
+  { value: 'thumbs-apply', label: 'Remove Unused Thumbnails' },
+  { value: 'viewer-remove', label: 'Remove Viewer Development Data' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+const CLEANUP_CONFIRMATIONS = Object.freeze({
+  'thumbs-apply': [
+    'The Admin thumbnail cleanup utility will identify and remove currently unused thumbnails.',
+    'This changes files in the local Admin repository. Run the dry run first.',
+  ],
+  'viewer-remove': [
+    'Remove only Tooling-managed Viewer config.json, playlists/, and thumbs/.',
+    'The exact ownership marker is required; unmarked or ambiguous content is protected.',
+  ],
+});
+const PRODUCTION_CONFIRMATIONS = Object.freeze({
+  complete: 'Build Viewer and Admin, stage exports, assemble, and verify the local production output?',
+  stage: 'Replace the disposable Admin export staging contents?',
+  assemble: 'Assemble and potentially replace the configured local production output?',
+});
+
+export async function runInteractiveCli({
+  applicationName,
+  version,
+  prompts,
+  operations,
+} = {}) {
+  prompts.intro(applicationName);
+  prompts.note(version, 'Version');
+  const results = createResultPresentation(prompts);
+  let finalStatus = 0;
+
+  const cancelled = (selection) => {
+    if (!prompts.isCancel(selection)) return false;
+    prompts.cancel('Cancelled.');
+    return true;
+  };
+
+  while (true) {
+    const mainSelection = await prompts.select({
+      message: 'What would you like to do?',
+      options: MAIN_MENU_OPTIONS,
+    });
+    if (cancelled(mainSelection)) return finalStatus;
+    if (mainSelection === 'exit') {
+      prompts.outro('Goodbye!');
+      return finalStatus;
+    }
+    if (mainSelection === 'dev') {
+      let showDevelopment = true;
+      while (showDevelopment) {
+        const developmentSelection = await prompts.select({
+          message: 'Run Apps Locally (Dev)', options: DEVELOPMENT_MENU_OPTIONS,
+        });
+        if (cancelled(developmentSelection)) return finalStatus;
+        if (developmentSelection === 'back') {
+          showDevelopment = false;
+          continue;
+        }
+        if (developmentSelection === 'viewer-install') {
+          prompts.note([
+            'Viewer development data is installed automatically when starting Dev Viewer or the Entire Dev Environment.',
+            'Use this option to install or replace the data independently.',
+            'Source: configured local freetv-data repository.',
+            'Destination: configured Viewer public/ directory.',
+            'Existing ownership, symlink, path, and transaction safeguards still apply.',
+          ].join('\n'), 'Install Viewer Development Data');
+          const confirmed = await prompts.confirm({
+            message: 'Continue with Viewer development-data installation?', initialValue: false,
+          });
+          if (cancelled(confirmed)) return finalStatus;
+          if (!confirmed) {
+            prompts.log.info('Installation cancelled; nothing was started.');
+            continue;
+          }
+          const status = await runCleanupAction('viewer-install', {
+            operations, presentation: results,
+          });
+          if (status !== 0) finalStatus = 1;
+          continue;
+        }
+        try {
+          await (operations?.launchDevelopmentTerminal ?? launchDevelopmentTerminal)({
+            selection: developmentSelection,
+          });
+          results.success('Development terminal launch requested. Startup diagnostics are shown in that terminal.');
+        } catch (error) {
+          finalStatus = 1;
+          results.error(`Development terminal launch failed: ${error.message}`);
+        }
+      }
+      continue;
+    }
+
+    if (mainSelection === 'build-local') {
+      let showBuilds = true;
+      while (showBuilds) {
+        const buildSelection = await prompts.select({
+          message: 'Build Apps Locally', options: BUILD_MENU_OPTIONS,
+        });
+        if (cancelled(buildSelection)) return finalStatus;
+        if (buildSelection === 'back') {
+          showBuilds = false;
+          continue;
+        }
+        const confirmed = await prompts.confirm({
+          message: `${BUILD_MENU_OPTIONS.find(({ value }) => value === buildSelection).label} will update local build output. Continue?`,
+        });
+        if (cancelled(confirmed)) return finalStatus;
+        if (!confirmed) {
+          prompts.log.info('Build cancelled; no build was started.');
+          continue;
+        }
+        const status = await runBuildAction(buildSelection, {
+          operations,
+          presentation: {
+            note: prompts.note, ...results,
+          },
+        });
+        if (status !== 0) finalStatus = 1;
+      }
+      continue;
+    }
+
+    if (mainSelection === 'build-production') {
+      let showProduction = true;
+      const executeProductionAction = async (selection) => {
+        if (selection !== 'verify') {
+          const confirmed = await prompts.confirm({
+            message: PRODUCTION_CONFIRMATIONS[selection], initialValue: false,
+          });
+          if (cancelled(confirmed)) return { cancelled: true };
+          if (!confirmed) {
+            prompts.log.info('Operation cancelled; nothing was started.');
+            return {};
+          }
+        }
+        const status = await runProductionAction(selection, {
+          operations, presentation: results,
+        });
+        return { status };
+      };
+      while (showProduction) {
+        const productionSelection = await prompts.select({
+          message: 'Build for Production', options: PRODUCTION_MENU_OPTIONS,
+        });
+        if (cancelled(productionSelection)) return finalStatus;
+        if (productionSelection === 'back') {
+          showProduction = false;
+          continue;
+        }
+        if (productionSelection === 'advanced') {
+          let showAdvancedProduction = true;
+          while (showAdvancedProduction) {
+            const advancedSelection = await prompts.select({
+              message: 'Advanced Options', options: ADVANCED_PRODUCTION_MENU_OPTIONS,
+            });
+            if (cancelled(advancedSelection)) return finalStatus;
+            if (advancedSelection === 'back') {
+              showAdvancedProduction = false;
+              continue;
+            }
+            const outcome = await executeProductionAction(advancedSelection);
+            if (outcome.cancelled) return finalStatus;
+            if (outcome.status !== undefined && outcome.status !== 0) finalStatus = 1;
+          }
+          continue;
+        }
+        const outcome = await executeProductionAction(productionSelection);
+        if (outcome.cancelled) return finalStatus;
+        if (outcome.status !== undefined && outcome.status !== 0) finalStatus = 1;
+      }
+      continue;
+    }
+
+    if (mainSelection === 'dataset') {
+      let showDatasets = true;
+      while (showDatasets) {
+        const datasetSelection = await prompts.select({
+          message: 'Dataset Operations', options: DATASET_MENU_OPTIONS,
+        });
+        if (cancelled(datasetSelection)) return finalStatus;
+        if (datasetSelection === 'back') {
+          showDatasets = false;
+          continue;
+        }
+
+        let snapshotPath;
+        if (datasetSelection === 'compare' || datasetSelection === 'publish') {
+          snapshotPath = await prompts.text({
+            message: 'Snapshot directory or ZIP path:',
+            validate: (value) => (typeof value !== 'string' || value.trim() === ''
+              ? 'Enter a snapshot directory or ZIP path.' : undefined),
+          });
+          if (cancelled(snapshotPath)) return finalStatus;
+          if (typeof snapshotPath !== 'string' || snapshotPath.trim() === '') {
+            results.error('A snapshot directory or ZIP path is required.');
+            continue;
+          }
+        }
+
+        if (datasetSelection === 'publish') {
+          prompts.note([
+            `Snapshot: ${snapshotPath}`,
+            'This changes the local freetv-data repository and synchronizes Admin SQL copies.',
+            'It does not update the live website or create a GitHub release.',
+          ].join('\n'), 'Publish Snapshot');
+        } else if (datasetSelection === 'release') {
+          prompts.note(
+            'This rebuilds and replaces the local Sample and Official First Run release ZIPs. It does not upload them.',
+            'Build Release Packages',
+          );
+        }
+
+        if (datasetSelection === 'publish' || datasetSelection === 'release') {
+          const confirmed = await prompts.confirm({
+            message: `Continue with ${DATASET_MENU_OPTIONS.find(({ value }) => value === datasetSelection).label}?`,
+            initialValue: false,
+          });
+          if (cancelled(confirmed)) return finalStatus;
+          if (!confirmed) {
+            prompts.log.info('Operation cancelled; nothing was started.');
+            continue;
+          }
+        }
+
+        const status = await runDatasetAction(datasetSelection, {
+          snapshotPath, operations, presentation: results,
+        });
+        if (status !== 0) finalStatus = 1;
+      }
+      continue;
+    }
+
+    if (mainSelection === 'cleanup') {
+      let showCleanup = true;
+      while (showCleanup) {
+        const cleanupSelection = await prompts.select({
+          message: 'Cleanup Tools', options: CLEANUP_MENU_OPTIONS,
+        });
+        if (cancelled(cleanupSelection)) return finalStatus;
+        if (cleanupSelection === 'back') {
+          showCleanup = false;
+          continue;
+        }
+
+        if (cleanupSelection === 'thumbs-dry-run') {
+          prompts.note(
+            'Dry run only: identifies unused thumbnails without deleting files.',
+            'Find Unused Thumbnails',
+          );
+        } else {
+          const details = CLEANUP_CONFIRMATIONS[cleanupSelection];
+          prompts.note(details.join('\n'), CLEANUP_MENU_OPTIONS.find(
+            ({ value }) => value === cleanupSelection,
+          ).label);
+          const confirmed = await prompts.confirm({
+            message: 'Continue with this cleanup operation?', initialValue: false,
+          });
+          if (cancelled(confirmed)) return finalStatus;
+          if (!confirmed) {
+            prompts.log.info('Cleanup cancelled; nothing was started.');
+            continue;
+          }
+        }
+
+        const status = await runCleanupAction(cleanupSelection, {
+          operations, presentation: results,
+        });
+        if (status !== 0) finalStatus = 1;
+      }
+      continue;
+    }
+
+    if (mainSelection !== 'diagnostics') continue;
+
+    let showDiagnostics = true;
+    while (showDiagnostics) {
+      const diagnosticsSelection = await prompts.select({
+        message: 'Tests & Diagnostics',
+        options: DIAGNOSTICS_MENU_OPTIONS,
+      });
+      if (cancelled(diagnosticsSelection)) return finalStatus;
+      if (diagnosticsSelection === 'back') {
+        showDiagnostics = false;
+        continue;
+      }
+      const status = await runDiagnosticAction(diagnosticsSelection, {
+        operations,
+        presentation: {
+          note: prompts.note,
+          ...results,
+        },
+      });
+      if (status !== 0) finalStatus = 1;
+    }
+  }
+}

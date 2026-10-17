@@ -1,21 +1,49 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runCommand } from './lib/command-runner.js';
+import { isolateViewerDevelopmentDataFromBuild } from './lib/viewer-development-data.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const toolingRoot = path.resolve(__dirname, '..');
-const config = JSON.parse(fs.readFileSync(path.resolve(toolingRoot, 'config/paths.json'), 'utf8'));
+const scriptPath = fileURLToPath(import.meta.url);
+const defaultToolingRoot = path.resolve(path.dirname(scriptPath), '..');
 
-const viewerRoot = path.resolve(toolingRoot, config.repos.viewer);
+function loadConfig(toolingRoot) {
+  return JSON.parse(fs.readFileSync(path.join(toolingRoot, 'config/paths.json'), 'utf8'));
+}
 
-console.log('Building FreeTV Viewer...');
-const build = spawn('npm', ['run', 'build'], { cwd: viewerRoot, stdio: 'inherit' });
-
-build.on('exit', (code) => {
-  if (code !== 0) {
-    process.exit(code ?? 1);
+export async function runViewerBuild({
+  toolingRoot = defaultToolingRoot,
+  config = loadConfig(toolingRoot),
+  environment = process.env,
+  signal,
+  commandRunner = runCommand,
+  developmentDataIsolator = isolateViewerDevelopmentDataFromBuild,
+  logger = console,
+} = {}) {
+  const viewerRoot = path.resolve(toolingRoot, config.repos.viewer);
+  logger.log('Building FreeTV Viewer...');
+  const result = await commandRunner({
+    executable: 'npm', args: ['run', 'build'], cwd: viewerRoot,
+    env: environment, stdio: 'inherit', signal,
+  });
+  const isolation = developmentDataIsolator({ toolingRoot, config });
+  if (isolation.isolated) {
+    logger.log('Excluded Tooling-managed development data from the Viewer production build.');
   }
-  console.log('FreeTV Viewer build complete.');
-});
+  logger.log('FreeTV Viewer build complete.');
+  return { ...result, repositoryRoot: viewerRoot };
+}
+
+export async function runViewerBuildCli(options = {}) {
+  try {
+    await runViewerBuild(options);
+    return 0;
+  } catch (error) {
+    (options.logger ?? console).error(`FreeTV Viewer build failed.\n\n${error.message}`);
+    return error.kind === 'exit' ? error.exitCode : 1;
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  process.exitCode = await runViewerBuildCli();
+}

@@ -61,6 +61,32 @@ FreeTV Tooling does not install MariaDB, create database accounts, initialize th
 
 ## Getting Started
 
+### Interactive CLI
+
+Launch FreeTV Tooling's interactive CLI with:
+
+```bash
+npm run freetv
+```
+
+The seven main categories cover local development, Viewer/Admin builds, production assembly, Dataset workflows,
+cleanup tools, diagnostics, and Exit. The CLI can:
+
+* open all development services, the Viewer alone, or the Admin and PHP services together in a separate terminal window;
+* build Viewer or Admin locally, or run the complete production build;
+* validate or compare Dataset snapshots, publish an explicitly selected snapshot to the local `freetv-data`
+  repository, and rebuild local First Run release packages;
+* find unused thumbnails with a dry run, or remove them after explicit confirmation; and
+* install or remove Tooling-managed Viewer development data.
+
+Mutating operations request confirmation, with destructive confirmations defaulting to No. Local Dataset
+publication does not update the live website, deploy files, or create a GitHub release. Existing standalone npm
+commands remain available and independent of the CLI.
+
+Development terminal launching supports common Linux graphical terminals, Windows PowerShell, and macOS
+Terminal.app. The macOS strategy is implemented but has not been verified on a Mac.
+PHP and the sibling-repository dependencies described below must still be installed for operations that require them.
+
 Clone or download the four FreeTV repositories into the same parent directory. The default configuration expects this workspace layout:
 
 ```text
@@ -89,7 +115,7 @@ Return to `freetv-tooling` and verify that the configured repositories are avail
 npm run status
 ```
 
-Install a disposable copy of the current `freetv-data` Viewer artifacts:
+You may explicitly install a disposable copy of the current `freetv-data` Viewer artifacts:
 
 ```bash
 npm run dev:install-viewer-data
@@ -107,6 +133,26 @@ Start the Viewer, Admin Dashboard, and PHP backend together:
 ```bash
 npm run dev:all
 ```
+
+`dev:all` and `dev:viewer` automatically install Viewer development data when all three managed destinations are
+absent. A complete, valid Tooling-managed installation is reused without being overwritten. Ambiguous state—such
+as partial, unmarked, symlinked, invalidly marked, or interrupted transaction content—is refused for manual review.
+Stopping development never removes the installed data; use the explicit cleanup command when you want to remove it.
+The interactive CLI offers the same all-services and Viewer-only workflows, plus Admin and PHP together.
+
+Viewer development data may remain installed during production builds. After Vite completes, Tooling validates the
+ownership marker and generated copies, then excludes only those matching development artifacts from `dist/`; the
+original files under `public/` remain unchanged. Production data still comes from validated Admin exports. Manual
+cleanup remains available through `npm run dev:clean-viewer-data`, but is not required before a production build.
+
+Interactive development selections open a separate terminal window and immediately return control to Clack. Use
+Ctrl+C in the corresponding development terminal to stop that supervised session; it does not stop the original
+Clack menu. The development terminal remains available after the session ends so startup or shutdown diagnostics
+can be read. Linux supports `x-terminal-emulator`, GNOME Terminal, Xfce Terminal, MATE Terminal, Konsole, Kitty,
+Alacritty, and xterm. Set `FREETV_TERMINAL` to one of those executable names or paths to select it explicitly.
+Without a supported graphical terminal or `DISPLAY`/`WAYLAND_DISPLAY`, the CLI reports an error and does not fall
+back to sharing Clack's terminal. Windows uses PowerShell to open Node in a new window; macOS uses Terminal.app.
+The standalone npm development commands remain available in the current terminal.
 
 The default development ports are:
 
@@ -324,6 +370,11 @@ The Viewer requires static JSON and thumbnail artifacts but does not require a l
 npm run dev:install-viewer-data
 ```
 
+The Viewer-containing development commands (`npm run dev:all` and `npm run dev:viewer`) perform this preparation
+automatically when the managed destinations are fully absent. They reuse a complete Tooling-managed installation
+and refuse unsafe or ambiguous existing state rather than overwriting it. `npm run dev:admin` and `npm run dev:php`
+do not inspect or modify Viewer data.
+
 This command resets these paths in `freetv-viewer/public/`:
 
 ```text
@@ -333,6 +384,8 @@ thumbs/
 ```
 
 These files are disposable local development state. Rerunning the command removes stale files and restores all three paths from the currently configured `freetv-data` repository.
+
+Development shutdown, startup failure, or unexpected service failure does not clean these files automatically.
 
 Do not edit the installed Viewer copies as the source of a dataset, and do not commit them from the Viewer repository. The distributable source files belong in `freetv-data`, while MariaDB remains authoritative for working Admin data.
 

@@ -41,9 +41,9 @@ function pathsOverlap(left, right) {
   return isWithin(left, right, true) || isWithin(right, left, true);
 }
 
-function pathEntryExists(candidate) {
+function pathEntryExists(candidate, fileSystem = fs) {
   try {
-    fs.lstatSync(candidate);
+    fileSystem.lstatSync(candidate);
     return true;
   } catch (error) {
     if (error.code === 'ENOENT') return false;
@@ -278,7 +278,14 @@ export function promotePublicationCandidate({ candidateRoot, dataRoot, runId, co
     }
     validatePublicationCandidate(preparedRoot, context);
   } catch (error) {
-    fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
+    try {
+      fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new Error(
+        `Could not prepare publication transaction; cleanup failed and may be partial; inspect ${transactionRoot}: ${error.message}; cleanup failed: ${cleanupError.message}`,
+        { cause: error },
+      );
+    }
     throw new Error(`Could not prepare publication transaction: ${error.message}`, { cause: error });
   }
 
@@ -309,7 +316,14 @@ export function promotePublicationCandidate({ candidateRoot, dataRoot, runId, co
       }
     }
     if (rollbackFailures.length === 0) {
-      fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
+      try {
+        fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
+      } catch (cleanupError) {
+        throw new Error(
+          `Publication promotion failed and was rolled back, but transaction cleanup failed and may be partial; inspect ${transactionRoot}: ${error.message}; cleanup failed: ${cleanupError.message}`,
+          { cause: error },
+        );
+      }
       throw new Error(`Publication promotion failed and was rolled back: ${error.message}`, { cause: error });
     }
     throw new Error(
@@ -322,13 +336,13 @@ export function promotePublicationCandidate({ candidateRoot, dataRoot, runId, co
     fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
   } catch (error) {
     throw new Error(
-      `Dataset was promoted, but publication transaction cleanup failed; inspect ${transactionRoot}: ${error.message}`,
+      `Dataset was promoted, but publication transaction cleanup failed and may have partially removed recovery state; inspect ${transactionRoot}: ${error.message}`,
       { cause: error },
     );
   }
 }
 
-function syncSqlPackagesToAdmin({ dataRoot, adminSqlRoot, runId }) {
+export function syncSqlPackagesToAdmin({ dataRoot, adminSqlRoot, runId, fileSystem = fs }) {
   requireSafeDirectory(adminSqlRoot, 'FreeTV Admin SQL directory');
   if (pathsOverlap(adminSqlRoot, dataRoot)) {
     throw new Error('FreeTV Admin SQL directory must not overlap freetv-data');
@@ -343,23 +357,30 @@ function syncSqlPackagesToAdmin({ dataRoot, adminSqlRoot, runId }) {
   }
 
   const transactionRoot = path.join(adminSqlRoot, `.freetv-data-publish-${runId}`);
-  const staleTransaction = fs.readdirSync(adminSqlRoot)
+  const staleTransaction = fileSystem.readdirSync(adminSqlRoot)
     .find((name) => name.startsWith('.freetv-data-publish-'));
   if (staleTransaction) {
     throw new Error(`Unresolved Admin SQL sync transaction requires inspection: ${path.join(adminSqlRoot, staleTransaction)}`);
   }
-  if (pathEntryExists(transactionRoot)) throw new Error(`Admin SQL sync transaction path already exists: ${transactionRoot}`);
+  if (pathEntryExists(transactionRoot, fileSystem)) throw new Error(`Admin SQL sync transaction path already exists: ${transactionRoot}`);
   const preparedRoot = path.join(transactionRoot, 'new');
   const backupRoot = path.join(transactionRoot, 'old');
-  fs.mkdirSync(preparedRoot, { recursive: true });
-  fs.mkdirSync(backupRoot);
+  fileSystem.mkdirSync(preparedRoot, { recursive: true });
+  fileSystem.mkdirSync(backupRoot);
   try {
     for (const filename of SQL_PACKAGE_FILES) {
-      fs.copyFileSync(path.join(dataRoot, filename), path.join(preparedRoot, filename));
-      fs.chmodSync(path.join(preparedRoot, filename), fs.statSync(path.join(dataRoot, filename)).mode);
+      fileSystem.copyFileSync(path.join(dataRoot, filename), path.join(preparedRoot, filename));
+      fileSystem.chmodSync(path.join(preparedRoot, filename), fileSystem.statSync(path.join(dataRoot, filename)).mode);
     }
   } catch (error) {
-    fs.rmSync(transactionRoot, { recursive: true, force: true });
+    try {
+      fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new Error(
+        `Could not prepare FreeTV Admin SQL sync; transaction cleanup failed and may be partial; inspect ${transactionRoot}: ${error.message}; cleanup failed: ${cleanupError.message}`,
+        { cause: error },
+      );
+    }
     throw new Error(`Could not prepare FreeTV Admin SQL sync: ${error.message}`, { cause: error });
   }
 
@@ -369,11 +390,11 @@ function syncSqlPackagesToAdmin({ dataRoot, adminSqlRoot, runId }) {
       const target = path.join(adminSqlRoot, state.filename);
       const backup = path.join(backupRoot, state.filename);
       const prepared = path.join(preparedRoot, state.filename);
-      if (pathEntryExists(target)) {
-        fs.renameSync(target, backup);
+      if (pathEntryExists(target, fileSystem)) {
+        fileSystem.renameSync(target, backup);
         state.backedUp = true;
       }
-      fs.renameSync(prepared, target);
+      fileSystem.renameSync(prepared, target);
       state.installed = true;
     }
   } catch (error) {
@@ -383,8 +404,8 @@ function syncSqlPackagesToAdmin({ dataRoot, adminSqlRoot, runId }) {
       const backup = path.join(backupRoot, state.filename);
       const prepared = path.join(preparedRoot, state.filename);
       try {
-        if (state.installed && pathEntryExists(target)) fs.renameSync(target, prepared);
-        if (state.backedUp && pathEntryExists(backup)) fs.renameSync(backup, target);
+        if (state.installed && pathEntryExists(target, fileSystem)) fileSystem.renameSync(target, prepared);
+        if (state.backedUp && pathEntryExists(backup, fileSystem)) fileSystem.renameSync(backup, target);
       } catch (rollbackError) {
         rollbackFailures.push(`${state.filename}: ${rollbackError.message}`);
       }
@@ -395,14 +416,21 @@ function syncSqlPackagesToAdmin({ dataRoot, adminSqlRoot, runId }) {
         { cause: error },
       );
     }
-    fs.rmSync(transactionRoot, { recursive: true, force: true });
+    try {
+      fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new Error(
+        `FreeTV Admin SQL sync failed and was rolled back, but transaction cleanup failed and may be partial; inspect ${transactionRoot}: ${error.message}; cleanup failed: ${cleanupError.message}`,
+        { cause: error },
+      );
+    }
     throw new Error(`FreeTV Admin SQL sync failed and was rolled back: ${error.message}`, { cause: error });
   }
 
   try {
-    fs.rmSync(transactionRoot, { recursive: true, force: true });
+    fileSystem.rmSync(transactionRoot, { recursive: true, force: true });
   } catch (error) {
-    throw new Error(`FreeTV Admin SQL packages were synced, but transaction cleanup failed; inspect ${transactionRoot}: ${error.message}`, { cause: error });
+    throw new Error(`FreeTV Admin SQL packages were synced, but transaction cleanup failed and may have partially removed recovery state; inspect ${transactionRoot}: ${error.message}`, { cause: error });
   }
 }
 
@@ -419,6 +447,7 @@ export async function publishDataset({
   artifactGenerator = generateValidatedDatasetArtifacts,
   snapshotLoader = loadProductionSnapshot,
   promoter = promotePublicationCandidate,
+  sqlSynchronizer = syncSqlPackagesToAdmin,
   logger = console,
   runId = crypto.randomBytes(6).toString('hex'),
   clock = () => new Date(),
@@ -451,7 +480,7 @@ export async function publishDataset({
     });
     promoted = true;
     try {
-      syncSqlPackagesToAdmin({
+      sqlSynchronizer({
         dataRoot: paths.dataRoot,
         adminSqlRoot: path.join(paths.adminRoot, 'sql'),
         runId,
