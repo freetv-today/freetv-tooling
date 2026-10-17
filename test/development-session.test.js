@@ -38,6 +38,64 @@ function controlledSession({ stopResult } = {}) {
   };
 }
 
+function terminalInput({ raw = false } = {}) {
+  const input = new EventEmitter();
+  input.isTTY = true;
+  input.isRaw = raw;
+  input.rawModes = [];
+  input.setRawMode = (enabled) => {
+    input.isRaw = enabled;
+    input.rawModes.push(enabled);
+  };
+  return input;
+}
+
+test('TTY Ctrl+C remains owned by the CLI and restores terminal input before menu return', async () => {
+  const signals = new EventEmitter();
+  const input = terminalInput();
+  const result = {
+    kind: 'cancelled', signal: 'SIGINT', stopped: true, unresolved: [], signalErrors: [], exitCode: 130,
+  };
+  const controlled = controlledSession({ stopResult: result });
+  const running = runDevelopmentSession({
+    startEnvironment: async () => controlled.session,
+    signalSource: signals,
+    inputSource: input,
+    presentation: presentation(),
+  });
+  await Promise.resolve();
+
+  input.emit('data', Buffer.from([3]));
+  const outcome = await running;
+
+  assert.equal(outcome.returnToMenu, true);
+  assert.equal(controlled.reasons.length, 1);
+  assert.equal(controlled.reasons[0].signal, 'SIGINT');
+  assert.deepEqual(input.rawModes, [true, false]);
+  assert.equal(input.isRaw, false);
+  assert.equal(input.listenerCount('data'), 0);
+  assert.equal(signals.listenerCount('SIGINT'), 0);
+  assert.equal(signals.listenerCount('SIGTERM'), 0);
+});
+
+test('development input ownership restores an existing raw-mode state', async () => {
+  const input = terminalInput({ raw: true });
+  const result = {
+    kind: 'cancelled', signal: 'SIGINT', stopped: true, unresolved: [], signalErrors: [], exitCode: 130,
+  };
+  const outcome = await runDevelopmentSession({
+    startEnvironment: async () => ({ completion: Promise.resolve(result), stop: async () => result }),
+    signalSource: new EventEmitter(),
+    inputSource: input,
+    presentation: presentation(),
+  });
+
+  assert.equal(outcome.returnToMenu, true);
+  assert.deepEqual(input.rawModes, []);
+  assert.equal(input.isRaw, true);
+  assert.equal(input.listenerCount('data'), 0);
+});
+
 test('Ctrl+C requests one supervised shutdown, awaits completion, and removes scoped listeners', async () => {
   const signals = new EventEmitter();
   const controlled = controlledSession();

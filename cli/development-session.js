@@ -13,12 +13,15 @@ export async function runDevelopmentSession({
   startEnvironment = runDevelopmentEnvironment,
   selection = 'all',
   signalSource = process,
+  inputSource = process.stdin,
   presentation = {},
 } = {}) {
   let session;
   let requestedReason;
   let stopRequested = false;
   let terminationRequested = false;
+  let managesTerminalInput = false;
+  let inputWasRaw = false;
 
   const requestStop = (signal) => {
     if (signal === 'SIGTERM') terminationRequested = true;
@@ -29,16 +32,26 @@ export async function runDevelopmentSession({
   };
   const onSigint = () => requestStop('SIGINT');
   const onSigterm = () => requestStop('SIGTERM');
+  const onInput = (chunk) => {
+    if (String(chunk).includes('\u0003')) requestStop('SIGINT');
+  };
 
   signalSource.on('SIGINT', onSigint);
   signalSource.on('SIGTERM', onSigterm);
-  presentation.note?.(
-    'The selected services will run under the existing development supervisor.',
-    'Start Development Environment',
-  );
-  presentation.info?.('Press Ctrl+C to stop the development environment and return to the menu.');
 
   try {
+    if (inputSource?.isTTY && typeof inputSource.setRawMode === 'function') {
+      inputWasRaw = inputSource.isRaw === true;
+      if (!inputWasRaw) inputSource.setRawMode(true);
+      managesTerminalInput = true;
+      inputSource.on('data', onInput);
+    }
+    presentation.note?.(
+      'The selected services will run under the existing development supervisor.',
+      'Start Development Environment',
+    );
+    presentation.info?.('Press Ctrl+C to stop the development environment and return to the menu.');
+
     session = await startEnvironment({ selection });
     if (requestedReason) void session.stop(requestedReason);
     const result = await session.completion;
@@ -70,7 +83,14 @@ export async function runDevelopmentSession({
     presentation.error?.(`Development environment failed to start: ${error.message}`);
     return { status: 1, returnToMenu: !terminationRequested, error };
   } finally {
-    signalSource.removeListener('SIGINT', onSigint);
-    signalSource.removeListener('SIGTERM', onSigterm);
+    try {
+      if (managesTerminalInput) {
+        inputSource.removeListener('data', onInput);
+        if (inputSource.isRaw !== inputWasRaw) inputSource.setRawMode(inputWasRaw);
+      }
+    } finally {
+      signalSource.removeListener('SIGINT', onSigint);
+      signalSource.removeListener('SIGTERM', onSigterm);
+    }
   }
 }
