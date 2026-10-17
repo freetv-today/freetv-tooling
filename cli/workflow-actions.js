@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runAssembleCli } from '../scripts/assemble.js';
@@ -11,15 +12,56 @@ import { runVerifyCli } from '../scripts/verify.js';
 
 const defaultToolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+function fileExists(target, fileSystem) {
+  try {
+    return fileSystem.statSync(target).isFile();
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+export function resolveNpmCliPath({
+  environment = process.env,
+  nodeExecutable = process.execPath,
+  platform = process.platform,
+  fileSystem = fs,
+} = {}) {
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
+  const candidates = [];
+  if (typeof environment.npm_execpath === 'string' && environment.npm_execpath.trim() !== '') {
+    candidates.push(pathApi.resolve(environment.npm_execpath));
+  }
+
+  const nodeDirectory = pathApi.dirname(nodeExecutable);
+  if (platform === 'win32') {
+    candidates.push(pathApi.join(nodeDirectory, 'node_modules', 'npm', 'bin', 'npm-cli.js'));
+  } else {
+    candidates.push(pathApi.resolve(nodeDirectory, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'));
+    candidates.push(pathApi.join(nodeDirectory, 'node_modules', 'npm', 'bin', 'npm-cli.js'));
+  }
+
+  const npmCliPath = [...new Set(candidates)].find((candidate) => fileExists(candidate, fileSystem));
+  if (!npmCliPath) {
+    throw new Error(`Could not resolve npm's JavaScript CLI entry point; checked: ${candidates.join(', ')}`);
+  }
+  return npmCliPath;
+}
+
 export async function runCompleteProductionBuild({
   toolingRoot = defaultToolingRoot,
+  environment = process.env,
+  nodeExecutable = process.execPath,
   platform = process.platform,
+  fileSystem = fs,
   commandRunner = runCommand,
 } = {}) {
+  const npmCliPath = resolveNpmCliPath({ environment, nodeExecutable, platform, fileSystem });
   await commandRunner({
-    executable: platform === 'win32' ? 'npm.cmd' : 'npm',
-    args: ['run', 'build:all'],
+    executable: nodeExecutable,
+    args: [npmCliPath, 'run', 'build:all'],
     cwd: toolingRoot,
+    env: environment,
     stdio: 'inherit',
   });
   return 0;

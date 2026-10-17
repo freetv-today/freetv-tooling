@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { runInteractiveCli } from '../cli/menu.js';
 import {
   runCompleteProductionBuild,
   runDatasetAction,
   runProductionAction,
+  resolveNpmCliPath,
 } from '../cli/workflow-actions.js';
 import { runStageExportsCli } from '../scripts/build-data.js';
 
@@ -48,17 +51,78 @@ function workflowOperations(calls, statuses = {}) {
   };
 }
 
-test('complete production build invokes one canonical cross-platform npm workflow', async () => {
-  for (const [platform, executable] of [['linux', 'npm'], ['darwin', 'npm'], ['win32', 'npm.cmd']]) {
+function existingFiles(...files) {
+  return {
+    statSync(target) {
+      if (files.includes(target)) return { isFile: () => true };
+      const error = new Error(`missing: ${target}`);
+      error.code = 'ENOENT';
+      throw error;
+    },
+  };
+}
+
+test('complete production build invokes npm JavaScript through Node on every platform', async () => {
+  for (const platform of ['linux', 'darwin', 'win32']) {
     const invocations = [];
+    const npmCliPath = platform === 'win32'
+      ? 'C:\\Program Files\\npm install\\npm-cli.js'
+      : '/Program Files/npm install/npm-cli.js';
+    const nodeExecutable = platform === 'win32'
+      ? 'C:\\Program Files\\node\\node.exe'
+      : '/Program Files/node/node';
+    const environment = { npm_execpath: npmCliPath, FIXTURE: 'value' };
     assert.equal(await runCompleteProductionBuild({
-      toolingRoot: '/tooling', platform,
+      toolingRoot: '/tooling', platform, environment, nodeExecutable,
+      fileSystem: existingFiles(npmCliPath),
       commandRunner: async (options) => { invocations.push(options); },
     }), 0);
     assert.deepEqual(invocations, [{
-      executable, args: ['run', 'build:all'], cwd: '/tooling', stdio: 'inherit',
+      executable: nodeExecutable,
+      args: [npmCliPath, 'run', 'build:all'],
+      cwd: '/tooling', env: environment, stdio: 'inherit',
     }]);
+    assert.notEqual(invocations[0].executable, 'npm.cmd');
   }
+});
+
+test('direct invocation resolves portable Node-install-relative npm CLI candidates', () => {
+  const windowsNode = 'C:\\Node Runtime\\node.exe';
+  const windowsCandidate = path.win32.join(
+    path.win32.dirname(windowsNode), 'node_modules', 'npm', 'bin', 'npm-cli.js',
+  );
+  assert.equal(resolveNpmCliPath({
+    environment: {}, nodeExecutable: windowsNode, platform: 'win32',
+    fileSystem: existingFiles(windowsCandidate),
+  }), windowsCandidate);
+
+  for (const platform of ['linux', 'darwin']) {
+    const nodeExecutable = '/opt/node/bin/node';
+    const candidate = '/opt/node/lib/node_modules/npm/bin/npm-cli.js';
+    assert.equal(resolveNpmCliPath({
+      environment: {}, nodeExecutable, platform, fileSystem: existingFiles(candidate),
+    }), candidate);
+  }
+});
+
+test('npm CLI resolution and command execution failures remain explicit failures', async () => {
+  assert.throws(() => resolveNpmCliPath({
+    environment: {}, nodeExecutable: '/missing/node', platform: 'linux', fileSystem: existingFiles(),
+  }), /Could not resolve npm's JavaScript CLI entry point.*npm-cli\.js/u);
+
+  const npmCliPath = '/npm/npm-cli.js';
+  for (const error of [new Error('exit fixture'), new Error('launch fixture')]) {
+    await assert.rejects(runCompleteProductionBuild({
+      environment: { npm_execpath: npmCliPath }, nodeExecutable: '/node',
+      fileSystem: existingFiles(npmCliPath), commandRunner: async () => { throw error; },
+    }), (actual) => actual === error);
+  }
+});
+
+test('canonical complete build retains build:all and its postbuild lifecycle script', () => {
+  const packageMetadata = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(packageMetadata.scripts['postbuild:all'], 'node scripts/build-complete.js');
+  assert.match(packageMetadata.scripts['build:all'], /build:viewer.*build:admin.*stage:exports.*assemble.*verify/u);
 });
 
 test('staging entry point is import-safe, delegates once, and reports failure status', async () => {
