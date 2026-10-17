@@ -4,6 +4,7 @@ import { runBuildAction, runDiagnosticAction } from '../cli/actions.js';
 import { runCli } from '../cli/index.js';
 import {
   BUILD_MENU_OPTIONS,
+  CLEANUP_MENU_OPTIONS,
   DATASET_MENU_OPTIONS,
   DEVELOPMENT_MENU_OPTIONS,
   DIAGNOSTICS_MENU_OPTIONS,
@@ -67,11 +68,14 @@ test('CLI modules are import-safe and expose the planned v1 navigation', () => {
   assert.deepEqual(DATASET_MENU_OPTIONS.map(({ value }) => value), [
     'validate', 'compare', 'publish', 'release', 'back',
   ]);
+  assert.deepEqual(CLEANUP_MENU_OPTIONS.map(({ value }) => value), [
+    'thumbs-dry-run', 'thumbs-apply', 'viewer-install', 'viewer-remove', 'back',
+  ]);
   assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'dev').label, /Coming later/u);
   assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'build-local').label, /Coming later/u);
   assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'build-production').label, /Coming later/u);
   assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'dataset').label, /Coming later/u);
-  assert.match(MAIN_MENU_OPTIONS.find(({ value }) => value === 'cleanup').label, /Coming later/u);
+  assert.doesNotMatch(MAIN_MENU_OPTIONS.find(({ value }) => value === 'cleanup').label, /Coming later/u);
 });
 
 test('diagnostics dispatches existing operations and reports only confirmed success', async () => {
@@ -92,14 +96,14 @@ test('diagnostics dispatches existing operations and reports only confirmed succ
   assert.deepEqual(prompts.events.at(-1), ['outro', 'Goodbye!']);
 });
 
-test('future categories give information and never dispatch an operation', async () => {
+test('cleanup back navigation performs no operation', async () => {
   const calls = [];
-  const prompts = promptFixture(['cleanup', 'exit']);
+  const prompts = promptFixture(['cleanup', 'back', 'cleanup', 'back', 'exit']);
   assert.equal(await runInteractiveCli({
     applicationName: 'FreeTV Tooling', version: '1.0.0', prompts, operations: operations(calls),
   }), 0);
   assert.deepEqual(calls, []);
-  assert.equal(prompts.events.filter(([kind, title]) => kind === 'note' && title !== 'Version').length, 1);
+  assert.equal(prompts.events.filter(([kind]) => kind === 'note').length, 1);
 });
 
 test('cancellation exits immediately without dispatching a later selection', async () => {

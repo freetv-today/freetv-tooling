@@ -61,15 +61,30 @@ FreeTV Tooling does not install MariaDB, create database accounts, initialize th
 
 ## Getting Started
 
-### Experimental CLI
+### Interactive CLI
 
-Launch the initial interactive CLI with:
+Launch FreeTV Tooling's interactive CLI with:
 
 ```bash
 npm run freetv
 ```
 
-It currently provides only a welcome screen and Exit option. Existing npm commands remain the supported way to run Tooling operations.
+The seven main categories cover local development, Viewer/Admin builds, production assembly, Dataset workflows,
+cleanup tools, diagnostics, and Exit. The CLI can:
+
+* start the Viewer, Admin, and PHP development services; Ctrl+C performs supervised shutdown and returns to the menu;
+* build Viewer or Admin locally, or run the complete production build;
+* validate or compare Dataset snapshots, publish an explicitly selected snapshot to the local `freetv-data`
+  repository, and rebuild local First Run release packages;
+* find unused thumbnails with a dry run, or remove them after explicit confirmation; and
+* install or remove Tooling-managed Viewer development data.
+
+Mutating operations request confirmation, with destructive confirmations defaulting to No. Local Dataset
+publication does not update the live website, deploy files, or create a GitHub release. Existing standalone npm
+commands remain available and independent of the CLI.
+
+The CLI uses Node and Clack APIs without Unix-specific terminal control and supports Linux, macOS, and Windows.
+PHP and the sibling-repository dependencies described below must still be installed for operations that require them.
 
 Clone or download the four FreeTV repositories into the same parent directory. The default configuration expects this workspace layout:
 

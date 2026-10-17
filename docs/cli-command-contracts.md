@@ -15,13 +15,23 @@ The interactive CLI invokes the existing command functions and preserves these s
 | `data:publish` | finite, durable transaction | exactly one `--snapshot=PATH`; validation gate mandatory | explicit confirmation required |
 | `release:build` | finite, durable package replacement | validated current Data | explicit confirmation required |
 | `clean:thumbs` | finite | dry-run by default; `--apply` mutates | explicit confirmation before `--apply` |
-| `dev:install-viewer-data` | finite, recoverable replacement | validated Data and Viewer repositories | confirmation recommended |
+| `dev:install-viewer-data` | finite, recoverable replacement | validated Data and Viewer repositories | explicit confirmation required in the CLI |
 | `dev:clean-viewer-data` | finite, destructive cleanup | exact Tooling ownership marker | explicit confirmation required |
 
 The CLI currently exposes development, local application builds, the canonical `build:all` production workflow,
-individual export/assembly/verification steps, and Dataset validation/comparison/publication/release operations.
+individual export/assembly/verification steps, Dataset validation/comparison/publication/release operations, and
+the complete Cleanup Tools category.
 Production builds, export staging, assembly, publication, and release generation require confirmation; read-only
 verification, validation, and comparison do not. Snapshot paths are always entered explicitly for comparison and
 publication, and publication confirmations default to No.
 
+Thumbnail cleanup is a dry run unless `--apply` is explicitly selected and confirmed. Viewer development-data
+installation and removal require confirmation, but confirmation does not bypass source validation, symlink refusal,
+the exact Tooling ownership marker, unmarked-content protection, interrupted-transaction refusal, or retained
+recovery-state diagnostics. The CLI does not directly traverse or delete Viewer data.
+
 Release promotion, Data publication, and Admin SQL synchronization use stale-transaction refusal rather than atomic concurrency claims. The CLI must serialize these commands and must not offer parallel execution. A command may report success only after its complete contract finishes; follow-up cleanup or synchronization failures must retain and report their partial-success state.
+
+CLI operations are awaited and serialized only within one interactive session; this is not a global cross-process
+lock. Finite commands retain their existing cancellation behavior, and the CLI does not claim process-tree
+cancellation for an operation already in progress.

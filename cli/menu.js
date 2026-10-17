@@ -1,4 +1,5 @@
 import { runBuildAction, runDiagnosticAction } from './actions.js';
+import { runCleanupAction } from './cleanup-actions.js';
 import { runDevelopmentSession } from './development-session.js';
 import { runDatasetAction, runProductionAction } from './workflow-actions.js';
 
@@ -7,7 +8,7 @@ export const MAIN_MENU_OPTIONS = Object.freeze([
   { value: 'build-local', label: 'Build Apps Locally' },
   { value: 'build-production', label: 'Build for Production' },
   { value: 'dataset', label: 'Dataset Operations' },
-  { value: 'cleanup', label: 'Cleanup Tools — Coming later' },
+  { value: 'cleanup', label: 'Cleanup Tools' },
   { value: 'diagnostics', label: 'Tests & Diagnostics' },
   { value: 'exit', label: 'Exit' },
 ]);
@@ -47,7 +48,30 @@ export const DATASET_MENU_OPTIONS = Object.freeze([
   { value: 'back', label: 'Back to Main Menu' },
 ]);
 
-const FUTURE_CATEGORIES = new Set(['cleanup']);
+export const CLEANUP_MENU_OPTIONS = Object.freeze([
+  { value: 'thumbs-dry-run', label: 'Find Unused Thumbnails (Dry Run)' },
+  { value: 'thumbs-apply', label: 'Remove Unused Thumbnails' },
+  { value: 'viewer-install', label: 'Install Viewer Development Data' },
+  { value: 'viewer-remove', label: 'Remove Viewer Development Data' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+const CLEANUP_CONFIRMATIONS = Object.freeze({
+  'thumbs-apply': [
+    'The Admin thumbnail cleanup utility will identify and remove currently unused thumbnails.',
+    'This changes files in the local Admin repository. Run the dry run first.',
+  ],
+  'viewer-install': [
+    'Install or replace managed Viewer config.json, playlists/, and thumbs/.',
+    'Source: configured local freetv-data repository.',
+    'Destination: configured Viewer public/ directory.',
+    'Existing ownership, symlink, preflight, and transaction safeguards still apply.',
+  ],
+  'viewer-remove': [
+    'Remove only Tooling-managed Viewer config.json, playlists/, and thumbs/.',
+    'The exact ownership marker is required; unmarked or ambiguous content is protected.',
+  ],
+});
 const PRODUCTION_CONFIRMATIONS = Object.freeze({
   complete: 'Build Viewer and Admin, stage exports, assemble, and verify the local production output?',
   stage: 'Replace the disposable Admin export staging contents?',
@@ -85,12 +109,6 @@ export async function runInteractiveCli({
       prompts.outro('Goodbye!');
       return finalStatus;
     }
-    if (FUTURE_CATEGORIES.has(mainSelection)) {
-      const selected = MAIN_MENU_OPTIONS.find(({ value }) => value === mainSelection);
-      prompts.note('This category will be available in a later CLI slice.', selected.label.replace(' — Coming later', ''));
-      continue;
-    }
-
     if (mainSelection === 'dev') {
       let showDevelopment = true;
       while (showDevelopment) {
@@ -233,6 +251,46 @@ export async function runInteractiveCli({
 
         const status = await runDatasetAction(datasetSelection, {
           snapshotPath, operations, presentation: presentation(prompts),
+        });
+        if (status !== 0) finalStatus = 1;
+      }
+      continue;
+    }
+
+    if (mainSelection === 'cleanup') {
+      let showCleanup = true;
+      while (showCleanup) {
+        const cleanupSelection = await prompts.select({
+          message: 'Cleanup Tools', options: CLEANUP_MENU_OPTIONS,
+        });
+        if (cancelled(cleanupSelection)) return finalStatus;
+        if (cleanupSelection === 'back') {
+          showCleanup = false;
+          continue;
+        }
+
+        if (cleanupSelection === 'thumbs-dry-run') {
+          prompts.note(
+            'Dry run only: identifies unused thumbnails without deleting files.',
+            'Find Unused Thumbnails',
+          );
+        } else {
+          const details = CLEANUP_CONFIRMATIONS[cleanupSelection];
+          prompts.note(details.join('\n'), CLEANUP_MENU_OPTIONS.find(
+            ({ value }) => value === cleanupSelection,
+          ).label);
+          const confirmed = await prompts.confirm({
+            message: 'Continue with this cleanup operation?', initialValue: false,
+          });
+          if (cancelled(confirmed)) return finalStatus;
+          if (!confirmed) {
+            prompts.log.info('Cleanup cancelled; nothing was started.');
+            continue;
+          }
+        }
+
+        const status = await runCleanupAction(cleanupSelection, {
+          operations, presentation: presentation(prompts),
         });
         if (status !== 0) finalStatus = 1;
       }
