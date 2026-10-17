@@ -1,4 +1,5 @@
 import path from 'node:path';
+import crypto from 'node:crypto';
 import fs from 'fs-extra';
 
 const MANAGED_ARTIFACTS = Object.freeze([
@@ -6,6 +7,9 @@ const MANAGED_ARTIFACTS = Object.freeze([
   { name: 'playlists', type: 'directory' },
   { name: 'thumbs', type: 'directory' },
 ]);
+const OWNERSHIP_MARKER = '.freetv-tooling-development-data.json';
+const TRANSACTION_PREFIX = '.freetv-tooling-development-data-';
+const OWNERSHIP_CONTRACT = 'freetv-tooling-viewer-development-data-v1';
 
 function isWithin(candidate, parent) {
   const relative = path.relative(parent, candidate);
@@ -107,27 +111,171 @@ function preflightSources(paths) {
   }
 }
 
-export async function installViewerDevelopmentData({ toolingRoot, config } = {}) {
+function snapshot(target, fileSystem = fs, relative = '') {
+  const stats = fileSystem.lstatSync(target);
+  if (stats.isSymbolicLink()) throw new Error(`Development-data tree contains a symbolic link: ${target}`);
+  if (stats.isFile()) {
+    return [[relative, crypto.createHash('sha256').update(fileSystem.readFileSync(target)).digest('hex')]];
+  }
+  if (!stats.isDirectory()) throw new Error(`Development-data tree contains an unsupported entry: ${target}`);
+  return fileSystem.readdirSync(target).sort().flatMap((name) => snapshot(
+    path.join(target, name), fileSystem, relative ? `${relative}/${name}` : name,
+  ));
+}
+
+function markerRecord(paths) {
+  return {
+    contract: OWNERSHIP_CONTRACT,
+    viewerRoot: paths.viewerRoot,
+    publicRoot: paths.publicRoot,
+    managedArtifacts: MANAGED_ARTIFACTS.map(({ name }) => name),
+  };
+}
+
+function markerPath(paths) {
+  return path.join(paths.publicRoot, OWNERSHIP_MARKER);
+}
+
+function readOwnership(paths, fileSystem = fs) {
+  const target = markerPath(paths);
+  if (!fileSystem.existsSync(target)) return null;
+  requirePath(target, 'file', 'Viewer development-data ownership marker');
+  let record;
+  try { record = JSON.parse(fileSystem.readFileSync(target, 'utf8')); } catch (error) {
+    throw new Error(`Viewer development-data ownership marker is invalid: ${target}: ${error.message}`);
+  }
+  if (JSON.stringify(record) !== JSON.stringify(markerRecord(paths))) {
+    throw new Error(`Viewer development-data ownership marker does not match the configured Viewer: ${target}`);
+  }
+  return record;
+}
+
+function assertNoInterruptedTransaction(paths, fileSystem = fs) {
+  const stale = fileSystem.readdirSync(paths.publicRoot).find((name) => name.startsWith(TRANSACTION_PREFIX));
+  if (stale) throw new Error(`Interrupted Viewer development-data transaction requires manual inspection: ${path.join(paths.publicRoot, stale)}`);
+}
+
+function existingManaged(paths, fileSystem = fs) {
+  return MANAGED_ARTIFACTS.filter(({ name }) => fileSystem.existsSync(paths.destinations[name]));
+}
+
+function validateDestinations(paths, fileSystem = fs) {
+  for (const { name, type } of existingManaged(paths, fileSystem)) {
+    const target = paths.destinations[name];
+    const stats = fileSystem.lstatSync(target);
+    if (stats.isSymbolicLink() || (type === 'file' ? !stats.isFile() : !stats.isDirectory())) {
+      throw new Error(`Viewer development-data destination is unsafe or ambiguous: ${target}`);
+    }
+  }
+}
+
+export async function installViewerDevelopmentData({
+  toolingRoot,
+  config,
+  runId = crypto.randomBytes(6).toString('hex'),
+  fileSystem = fs,
+  transactionHooks = {},
+} = {}) {
   const resolvedToolingRoot = path.resolve(toolingRoot);
   const effectiveConfig = config ?? loadViewerDevelopmentDataConfig(resolvedToolingRoot);
   const paths = resolveViewerDevelopmentDataPaths(resolvedToolingRoot, effectiveConfig);
 
   // Complete every validation before changing disposable Viewer state.
   preflightSources(paths);
+  if (pathsOverlap(fileSystem.realpathSync(paths.dataRoot), fileSystem.realpathSync(paths.publicRoot))) {
+    throw new Error('FreeTV Data repository must not overlap the Viewer public directory through symbolic links');
+  }
+  validateDestinations(paths, fileSystem);
+  assertNoInterruptedTransaction(paths, fileSystem);
+  const ownership = readOwnership(paths, fileSystem);
+  if (!ownership && existingManaged(paths, fileSystem).length > 0) {
+    throw new Error('Existing Viewer development data is unmarked and will not be replaced automatically; manual inspection is required');
+  }
 
-  for (const { name } of MANAGED_ARTIFACTS) await fs.remove(paths.destinations[name]);
-  for (const { name } of MANAGED_ARTIFACTS) {
-    await fs.copy(paths.sources[name], paths.destinations[name], { overwrite: true });
+  if (!/^[a-f0-9]{12}$/u.test(runId)) throw new Error('Viewer development-data transaction ID is unsafe');
+  const transactionRoot = path.join(paths.publicRoot, `${TRANSACTION_PREFIX}${runId}`);
+  const preparedRoot = path.join(transactionRoot, 'new');
+  const backupRoot = path.join(transactionRoot, 'old');
+  if (fileSystem.existsSync(transactionRoot)) throw new Error(`Viewer development-data transaction already exists: ${transactionRoot}`);
+  fileSystem.mkdirSync(preparedRoot, { recursive: true });
+  fileSystem.mkdirSync(backupRoot);
+  try {
+    for (const { name } of MANAGED_ARTIFACTS) {
+      fileSystem.copySync(paths.sources[name], path.join(preparedRoot, name), { overwrite: false, errorOnExist: true });
+      transactionHooks.afterCandidateCopy?.({ name, transactionRoot });
+    }
+    for (const { name } of MANAGED_ARTIFACTS) {
+      if (JSON.stringify(snapshot(paths.sources[name], fileSystem))
+        !== JSON.stringify(snapshot(path.join(preparedRoot, name), fileSystem))) {
+        throw new Error(`Prepared Viewer development data does not match source: ${name}`);
+      }
+    }
+  } catch (error) {
+    fileSystem.removeSync(transactionRoot);
+    throw new Error(`Could not prepare Viewer development data; previous installation is intact: ${error.message}`, { cause: error });
+  }
+
+  const states = MANAGED_ARTIFACTS.map(({ name }) => ({ name, backedUp: false, installed: false }));
+  try {
+    for (const state of states) {
+      const destination = paths.destinations[state.name];
+      if (fileSystem.existsSync(destination)) {
+        fileSystem.renameSync(destination, path.join(backupRoot, state.name));
+        state.backedUp = true;
+      }
+      transactionHooks.beforePromotion?.({ name: state.name, transactionRoot });
+      fileSystem.renameSync(path.join(preparedRoot, state.name), destination);
+      state.installed = true;
+    }
+  } catch (error) {
+    const failures = [];
+    for (const state of [...states].reverse()) {
+      try {
+        const destination = paths.destinations[state.name];
+        if (state.installed && fileSystem.existsSync(destination)) {
+          fileSystem.renameSync(destination, path.join(preparedRoot, state.name));
+        }
+        if (state.backedUp && fileSystem.existsSync(path.join(backupRoot, state.name))) {
+          transactionHooks.beforeRollback?.({ name: state.name, transactionRoot });
+          fileSystem.renameSync(path.join(backupRoot, state.name), destination);
+        }
+      } catch (rollbackError) { failures.push(`${state.name}: ${rollbackError.message}`); }
+    }
+    if (failures.length > 0) {
+      throw new Error(`Viewer development-data promotion failed and rollback was incomplete; recovery state retained at ${transactionRoot}: ${failures.join('; ')}`, { cause: error });
+    }
+    fileSystem.removeSync(transactionRoot);
+    throw new Error(`Viewer development-data promotion failed and previous installation was restored: ${error.message}`, { cause: error });
+  }
+
+  if (!ownership) {
+    try {
+      fileSystem.writeFileSync(markerPath(paths), `${JSON.stringify(markerRecord(paths), null, 2)}\n`, { flag: 'wx' });
+    } catch (error) {
+      throw new Error(`Viewer development data was installed, but ownership marker creation failed; recovery state retained at ${transactionRoot}: ${error.message}`, { cause: error });
+    }
+  }
+  try { fileSystem.removeSync(transactionRoot); } catch (error) {
+    throw new Error(`Viewer development data was installed, but transaction cleanup failed and may be partial; inspect ${transactionRoot}: ${error.message}`, { cause: error });
   }
 
   return paths;
 }
 
-export async function cleanViewerDevelopmentData({ toolingRoot, config } = {}) {
+export async function cleanViewerDevelopmentData({ toolingRoot, config, fileSystem = fs } = {}) {
   const resolvedToolingRoot = path.resolve(toolingRoot);
   const effectiveConfig = config ?? loadViewerDevelopmentDataConfig(resolvedToolingRoot);
   const paths = resolveViewerPaths(resolvedToolingRoot, effectiveConfig);
 
-  for (const { name } of MANAGED_ARTIFACTS) await fs.remove(paths.destinations[name]);
+  validateDestinations(paths, fileSystem);
+  assertNoInterruptedTransaction(paths, fileSystem);
+  const ownership = readOwnership(paths, fileSystem);
+  const existing = existingManaged(paths, fileSystem);
+  if (!ownership) {
+    if (existing.length === 0) return paths;
+    throw new Error('Existing Viewer development data is unmarked and will not be cleaned automatically; manual inspection is required');
+  }
+  for (const { name } of MANAGED_ARTIFACTS) fileSystem.removeSync(paths.destinations[name]);
+  fileSystem.unlinkSync(markerPath(paths));
   return paths;
 }

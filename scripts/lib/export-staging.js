@@ -80,6 +80,12 @@ export function resetStaging(stagingRoot, ownedRoot) {
   if (!isWithin(resolvedStaging, resolvedOwned, true)) {
     throw new Error(`Refusing to reset path outside Tooling-owned staging root: ${resolvedStaging}`);
   }
+  if (fs.existsSync(resolvedOwned) && fs.lstatSync(resolvedOwned).isSymbolicLink()) {
+    throw new Error(`Refusing to reset through symbolic-link Tooling staging root: ${resolvedOwned}`);
+  }
+  if (fs.existsSync(resolvedStaging) && fs.lstatSync(resolvedStaging).isSymbolicLink()) {
+    throw new Error(`Refusing to reset symbolic-link staging path: ${resolvedStaging}`);
+  }
   assertNoSymlinkAncestors(resolvedStaging, resolvedOwned);
   fs.rmSync(resolvedStaging, { recursive: true, force: true });
 }
@@ -237,7 +243,11 @@ export async function stageAdminExports({ toolingRoot, config, commandRunner = r
     }
     return { dataManifest, thumbnailManifest, paths };
   } catch (error) {
-    resetStaging(paths.stagingRoot, paths.ownedRoot);
+    try {
+      resetStaging(paths.stagingRoot, paths.ownedRoot);
+    } catch (cleanupError) {
+      throw new Error(`${error.message}; staging cleanup also failed: ${cleanupError.message}`, { cause: error });
+    }
     throw error;
   }
 }

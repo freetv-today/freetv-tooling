@@ -35,7 +35,7 @@ function fixture(t) {
   write(path.join(dataRoot, 'thumbs/featured/poster.jpg'), 'thumbnail');
 
   t.after(() => fs.rmSync(root, { force: true, recursive: true }));
-  return { dataRoot, publicRoot, toolingRoot, viewerRoot };
+  return { root, dataRoot, publicRoot, toolingRoot, viewerRoot };
 }
 
 function treeSnapshot(root) {
@@ -71,6 +71,7 @@ test('install copies all three configured Data artifacts into Viewer public', as
     treeSnapshot(path.join(expected.publicRoot, 'thumbs')),
     treeSnapshot(path.join(expected.dataRoot, 'thumbs')),
   );
+  assert.equal(fs.existsSync(path.join(expected.publicRoot, '.freetv-tooling-development-data.json')), true);
 });
 
 test('a second install replaces corrupt, missing, and stale destination content', async (t) => {
@@ -110,6 +111,7 @@ test('clean removes only the three managed Viewer destinations and is repeatable
   for (const name of ['config.json', 'playlists', 'thumbs']) {
     assert.equal(fs.existsSync(path.join(expected.publicRoot, name)), false);
   }
+  assert.equal(fs.existsSync(path.join(expected.publicRoot, '.freetv-tooling-development-data.json')), false);
   assert.equal(fs.readFileSync(path.join(expected.publicRoot, 'index.html'), 'utf8'), '<main>keep</main>');
   assert.equal(fs.readFileSync(path.join(expected.publicRoot, 'assets/app.js'), 'utf8'), 'keep');
   assert.equal(fs.existsSync(expected.publicRoot), true);
@@ -143,5 +145,76 @@ test('unsafe configured Viewer destination is rejected without deletion', async 
     /config\.repos\.viewer must not resolve to the Tooling root/u,
   );
   assert.equal(fs.readFileSync(path.join(toolingPublic, 'config.json'), 'utf8'), 'must-stay');
+});
+
+test('mid-copy preparation failure preserves an owned previous installation', async (t) => {
+  const expected = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: expected.toolingRoot, runId: '111111111111' });
+  const before = treeSnapshot(expected.publicRoot);
+  let copied = 0;
+  await assert.rejects(installViewerDevelopmentData({
+    toolingRoot: expected.toolingRoot,
+    runId: '222222222222',
+    transactionHooks: { afterCandidateCopy() { if (++copied === 2) throw new Error('copy fixture'); } },
+  }), /Could not prepare.*previous installation is intact.*copy fixture/su);
+  assert.deepEqual(treeSnapshot(expected.publicRoot), before);
+});
+
+test('promotion failure restores the previous owned installation', async (t) => {
+  const expected = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: expected.toolingRoot, runId: '333333333333' });
+  const before = treeSnapshot(expected.publicRoot);
+  await assert.rejects(installViewerDevelopmentData({
+    toolingRoot: expected.toolingRoot,
+    runId: '444444444444',
+    transactionHooks: { beforePromotion({ name }) { if (name === 'playlists') throw new Error('promotion fixture'); } },
+  }), /promotion failed and previous installation was restored.*promotion fixture/su);
+  assert.deepEqual(treeSnapshot(expected.publicRoot), before);
+});
+
+test('rollback failure retains exact Viewer recovery state and blocks later installation', async (t) => {
+  const expected = fixture(t);
+  await installViewerDevelopmentData({ toolingRoot: expected.toolingRoot, runId: '555555555555' });
+  const transactionRoot = path.join(expected.publicRoot, '.freetv-tooling-development-data-666666666666');
+  await assert.rejects(installViewerDevelopmentData({
+    toolingRoot: expected.toolingRoot,
+    runId: '666666666666',
+    transactionHooks: {
+      beforePromotion({ name }) { if (name === 'playlists') throw new Error('promotion fixture'); },
+      beforeRollback({ name }) { if (name === 'playlists') throw new Error('rollback fixture'); },
+    },
+  }), (error) => error.message.includes('rollback was incomplete') && error.message.includes(transactionRoot));
+  assert.equal(fs.existsSync(transactionRoot), true);
+  await assert.rejects(
+    installViewerDevelopmentData({ toolingRoot: expected.toolingRoot, runId: '777777777777' }),
+    /Interrupted Viewer development-data transaction requires manual inspection/,
+  );
+});
+
+test('unmarked existing content is preserved by install and cleanup', async (t) => {
+  const expected = fixture(t);
+  write(path.join(expected.publicRoot, 'config.json'), 'legacy');
+  const before = treeSnapshot(expected.publicRoot);
+  await assert.rejects(
+    installViewerDevelopmentData({ toolingRoot: expected.toolingRoot }),
+    /unmarked.*manual inspection/,
+  );
+  await assert.rejects(
+    cleanViewerDevelopmentData({ toolingRoot: expected.toolingRoot }),
+    /unmarked.*manual inspection/,
+  );
+  assert.deepEqual(treeSnapshot(expected.publicRoot), before);
+});
+
+test('symlinked managed destination is refused without affecting its target', { skip: process.platform === 'win32' }, async (t) => {
+  const expected = fixture(t);
+  const outside = path.join(expected.root, 'outside');
+  write(path.join(outside, 'keep.txt'), 'keep');
+  fs.symlinkSync(outside, path.join(expected.publicRoot, 'playlists'), 'dir');
+  await assert.rejects(
+    installViewerDevelopmentData({ toolingRoot: expected.toolingRoot }),
+    /destination is unsafe or ambiguous/,
+  );
+  assert.equal(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8'), 'keep');
 });
 

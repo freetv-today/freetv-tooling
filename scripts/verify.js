@@ -5,44 +5,36 @@ import { verifyProduction } from './lib/production-verification.js';
 
 /* global process */
 
-const toolingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const config = JSON.parse(fs.readFileSync(path.join(toolingRoot, 'config/paths.json'), 'utf8'));
+const scriptPath = fileURLToPath(import.meta.url);
+const defaultToolingRoot = path.resolve(path.dirname(scriptPath), '..');
 
-try {
-  const result = verifyProduction({ toolingRoot, config });
-  console.log('FreeTV production verification passed');
-  console.log('');
-  console.log('Application:');
-  console.log('  Composer runtime: OK');
-  console.log(`  Package files: ${result.application.packageFileCount}`);
-  console.log(`  API PHP files: ${result.api.phpFileCount} (syntax OK)`);
-  console.log('  Temp runtime state: clean');
-  console.log('');
-  console.log('Viewer:');
-  console.log(`  Assets: ${result.viewer.assetCount}`);
-  console.log(`  Static references checked: ${result.viewer.staticReferenceCount}`);
-  console.log('  Static references: OK');
-  console.log('');
-  console.log('Admin:');
-  console.log(`  Assets: ${result.admin.assetCount}`);
-  console.log(`  Static references checked: ${result.admin.staticReferenceCount}`);
-  console.log('  Static references: OK');
-  console.log('');
-  console.log('Data:');
-  console.log(`  Playlists: ${result.data.playlistCount}`);
-  console.log(`  Shows: ${result.data.showCount}`);
-  console.log('  Manifest integrity: OK');
-  console.log('');
-  console.log('Thumbnails:');
-  console.log(`  Files: ${result.thumbnails.fileCount}`);
-  console.log(`  Bytes: ${result.thumbnails.totalBytes}`);
-  console.log('  Manifest integrity: OK');
-  console.log('');
-  console.log('Secrets/development debris: none');
-  console.log('Symlinks: none');
-  console.log('');
-  console.log('Ready for deployment testing.');
-} catch (error) {
-  console.error(`FreeTV production verification failed: ${error.message}`);
-  process.exitCode = 1;
+export function runVerifyCli({
+  toolingRoot = defaultToolingRoot,
+  configLoader = (root) => JSON.parse(fs.readFileSync(path.join(root, 'config/paths.json'), 'utf8')),
+  verifier = verifyProduction,
+  logger = console,
+} = {}) {
+  try {
+    const result = verifier({ toolingRoot, config: configLoader(toolingRoot) });
+    const lines = [
+      'FreeTV production verification passed', '', 'Application:', '  Composer runtime: OK',
+      `  Package files: ${result.application.packageFileCount}`,
+      `  API PHP files: ${result.api.phpFileCount} (syntax OK)`, '  Temp runtime state: clean', '',
+      'Viewer:', `  Assets: ${result.viewer.assetCount}`,
+      `  Static references checked: ${result.viewer.staticReferenceCount}`, '  Static references: OK', '',
+      'Admin:', `  Assets: ${result.admin.assetCount}`,
+      `  Static references checked: ${result.admin.staticReferenceCount}`, '  Static references: OK', '',
+      'Data:', `  Playlists: ${result.data.playlistCount}`, `  Shows: ${result.data.showCount}`,
+      '  Manifest integrity: OK', '', 'Thumbnails:', `  Files: ${result.thumbnails.fileCount}`,
+      `  Bytes: ${result.thumbnails.totalBytes}`, '  Manifest integrity: OK', '',
+      'Secrets/development debris: none', 'Symlinks: none', '', 'Ready for deployment testing.',
+    ];
+    lines.forEach((line) => logger.log(line));
+    return 0;
+  } catch (error) {
+    logger.error(`FreeTV production verification failed: ${error.message}`);
+    return 1;
+  }
 }
+
+if (path.resolve(process.argv[1] || '') === scriptPath) process.exitCode = runVerifyCli();
