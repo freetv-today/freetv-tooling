@@ -3,6 +3,7 @@ import test from 'node:test';
 import { runBuildAction, runDiagnosticAction } from '../cli/actions.js';
 import { runCli } from '../cli/index.js';
 import {
+  ADVANCED_PRODUCTION_MENU_OPTIONS,
   BUILD_MENU_OPTIONS,
   CLEANUP_MENU_OPTIONS,
   DATASET_MENU_OPTIONS,
@@ -62,8 +63,16 @@ test('CLI modules are import-safe and expose the planned v1 navigation', () => {
   ]);
   assert.deepEqual(DEVELOPMENT_MENU_OPTIONS.map(({ value }) => value), ['all', 'viewer', 'admin', 'back']);
   assert.deepEqual(BUILD_MENU_OPTIONS.map(({ value }) => value), ['viewer', 'admin', 'both', 'back']);
-  assert.deepEqual(PRODUCTION_MENU_OPTIONS.map(({ value }) => value), [
-    'complete', 'stage', 'assemble', 'verify', 'back',
+  assert.deepEqual(PRODUCTION_MENU_OPTIONS.map(({ value }) => value), ['complete', 'advanced', 'back']);
+  assert.deepEqual(PRODUCTION_MENU_OPTIONS.map(({ label }) => label), [
+    'Complete Production Build', 'Advanced', 'Back to Main Menu',
+  ]);
+  assert.deepEqual(ADVANCED_PRODUCTION_MENU_OPTIONS.map(({ value }) => value), [
+    'stage', 'assemble', 'verify', 'back',
+  ]);
+  assert.deepEqual(ADVANCED_PRODUCTION_MENU_OPTIONS.map(({ label }) => label), [
+    'Stage Admin Exports', 'Assemble Production Output', 'Verify Production Output',
+    'Back to Build for Production',
   ]);
   assert.deepEqual(DATASET_MENU_OPTIONS.map(({ value }) => value), [
     'validate', 'compare', 'publish', 'release', 'back',
@@ -141,6 +150,17 @@ test('development and build back navigation remains iterative and does not dupli
     applicationName: 'FreeTV Tooling', version: '1.0.0', prompts, operations: operations(calls),
   }), 0);
   assert.deepEqual(calls, ['status']);
+});
+
+test('advanced production back navigation returns through both parent menus', async () => {
+  const prompts = promptFixture(['build-production', 'advanced', 'back', 'back', 'exit']);
+  assert.equal(await runInteractiveCli({
+    applicationName: 'FreeTV Tooling', version: '1.0.0', prompts, operations: {},
+  }), 0);
+  assert.deepEqual(prompts.events.filter(([kind]) => kind === 'select').map(([, options]) => options.message), [
+    'What would you like to do?', 'Build for Production', 'Advanced Options',
+    'Build for Production', 'What would you like to do?',
+  ]);
 });
 
 test('build menus dispatch Viewer, Admin, and Build Both exactly and sequentially', async () => {

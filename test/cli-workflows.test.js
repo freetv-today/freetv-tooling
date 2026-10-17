@@ -143,8 +143,8 @@ test('staging entry point is import-safe, delegates once, and reports failure st
 test('production submenu confirms mutations, runs verification directly, and accumulates failure', async () => {
   const calls = [];
   const prompts = promptFixture([
-    'build-production', 'complete', true, 'stage', true, 'assemble', true,
-    'verify', 'back', 'exit',
+    'build-production', 'complete', true, 'advanced', 'stage', true, 'assemble', true,
+    'verify', 'back', 'back', 'exit',
   ]);
   const status = await runInteractiveCli({
     applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
@@ -158,16 +158,36 @@ test('production submenu confirms mutations, runs verification directly, and acc
 });
 
 test('declined and cancelled production confirmations launch nothing', async () => {
-  for (const confirmation of [false, CANCEL]) {
+  for (const [selection, confirmation] of [
+    ['complete', false], ['complete', CANCEL], ['stage', false], ['assemble', CANCEL],
+  ]) {
     const calls = [];
+    const advanced = selection !== 'complete';
     const prompts = promptFixture(confirmation === false
-      ? ['build-production', 'complete', false, 'back', 'exit']
-      : ['build-production', 'complete', CANCEL]);
+      ? ['build-production', ...(advanced ? ['advanced'] : []), selection, false,
+        ...(advanced ? ['back'] : []), 'back', 'exit']
+      : ['build-production', ...(advanced ? ['advanced'] : []), selection, CANCEL]);
     assert.equal(await runInteractiveCli({
       applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
       operations: workflowOperations(calls),
     }), 0);
     assert.deepEqual(calls, []);
+  }
+});
+
+test('Clack cancellation exits from both production menu levels without dispatch', async () => {
+  for (const selections of [
+    ['build-production', CANCEL],
+    ['build-production', 'advanced', CANCEL],
+  ]) {
+    const calls = [];
+    const prompts = promptFixture(selections);
+    assert.equal(await runInteractiveCli({
+      applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
+      operations: workflowOperations(calls),
+    }), 0);
+    assert.deepEqual(calls, []);
+    assert.equal(prompts.events.filter(([kind]) => kind === 'cancel').length, 1);
   }
 });
 

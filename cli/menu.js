@@ -36,10 +36,15 @@ export const BUILD_MENU_OPTIONS = Object.freeze([
 
 export const PRODUCTION_MENU_OPTIONS = Object.freeze([
   { value: 'complete', label: 'Complete Production Build' },
+  { value: 'advanced', label: 'Advanced' },
+  { value: 'back', label: 'Back to Main Menu' },
+]);
+
+export const ADVANCED_PRODUCTION_MENU_OPTIONS = Object.freeze([
   { value: 'stage', label: 'Stage Admin Exports' },
   { value: 'assemble', label: 'Assemble Production Output' },
   { value: 'verify', label: 'Verify Production Output' },
-  { value: 'back', label: 'Back to Main Menu' },
+  { value: 'back', label: 'Back to Build for Production' },
 ]);
 
 export const DATASET_MENU_OPTIONS = Object.freeze([
@@ -166,6 +171,22 @@ export async function runInteractiveCli({
 
     if (mainSelection === 'build-production') {
       let showProduction = true;
+      const executeProductionAction = async (selection) => {
+        if (selection !== 'verify') {
+          const confirmed = await prompts.confirm({
+            message: PRODUCTION_CONFIRMATIONS[selection], initialValue: false,
+          });
+          if (cancelled(confirmed)) return { cancelled: true };
+          if (!confirmed) {
+            prompts.log.info('Operation cancelled; nothing was started.');
+            return {};
+          }
+        }
+        const status = await runProductionAction(selection, {
+          operations, presentation: presentation(prompts),
+        });
+        return { status };
+      };
       while (showProduction) {
         const productionSelection = await prompts.select({
           message: 'Build for Production', options: PRODUCTION_MENU_OPTIONS,
@@ -175,20 +196,26 @@ export async function runInteractiveCli({
           showProduction = false;
           continue;
         }
-        if (productionSelection !== 'verify') {
-          const confirmed = await prompts.confirm({
-            message: PRODUCTION_CONFIRMATIONS[productionSelection], initialValue: false,
-          });
-          if (cancelled(confirmed)) return finalStatus;
-          if (!confirmed) {
-            prompts.log.info('Operation cancelled; nothing was started.');
-            continue;
+        if (productionSelection === 'advanced') {
+          let showAdvancedProduction = true;
+          while (showAdvancedProduction) {
+            const advancedSelection = await prompts.select({
+              message: 'Advanced Options', options: ADVANCED_PRODUCTION_MENU_OPTIONS,
+            });
+            if (cancelled(advancedSelection)) return finalStatus;
+            if (advancedSelection === 'back') {
+              showAdvancedProduction = false;
+              continue;
+            }
+            const outcome = await executeProductionAction(advancedSelection);
+            if (outcome.cancelled) return finalStatus;
+            if (outcome.status !== undefined && outcome.status !== 0) finalStatus = 1;
           }
+          continue;
         }
-        const status = await runProductionAction(productionSelection, {
-          operations, presentation: presentation(prompts),
-        });
-        if (status !== 0) finalStatus = 1;
+        const outcome = await executeProductionAction(productionSelection);
+        if (outcome.cancelled) return finalStatus;
+        if (outcome.status !== undefined && outcome.status !== 0) finalStatus = 1;
       }
       continue;
     }
