@@ -49,6 +49,7 @@ const API_EXCLUDED_EXTENSIONS = new Set([
   '.bak', '.backup', '.crt', '.dump', '.key', '.old', '.orig', '.p12', '.pem', '.pfx', '.sql', '.swp', '.tmp',
 ]);
 const VENDOR_EXCLUDED_DIRECTORIES = new Set(['.git', 'node_modules', 'test', 'tests', 'tools']);
+const COMPOSER_TEMPORARY_DOWNLOAD = /^tmp-[a-f0-9]+\.zip~$/u;
 export const VIEWER_SPA_HTACCESS = `RewriteEngine On
 RewriteBase /
 
@@ -295,8 +296,14 @@ function collectVendorEntries(vendorRoot) {
   const included = [];
   const exclusions = [];
   for (const item of walk(vendorRoot)) {
-    const segments = item.relativePath.split(path.sep).map((segment) => segment.toLowerCase());
-    if (segments.some((segment) => VENDOR_EXCLUDED_DIRECTORIES.has(segment))) {
+    const pathSegments = item.relativePath.split(path.sep);
+    const segments = pathSegments.map((segment) => segment.toLowerCase());
+    const isComposerTemporaryDownload = item.entry.isFile()
+      && pathSegments.length === 2
+      && pathSegments[0] === 'composer'
+      && COMPOSER_TEMPORARY_DOWNLOAD.test(path.basename(item.relativePath));
+    if (segments.some((segment) => VENDOR_EXCLUDED_DIRECTORIES.has(segment))
+      || isComposerTemporaryDownload) {
       exclusions.push(item.relativePath);
     } else {
       included.push(item);

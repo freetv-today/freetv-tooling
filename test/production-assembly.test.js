@@ -624,6 +624,44 @@ test('.env and denied API content are not copied', (t) => {
   assert.ok(result.apiExclusions.includes('beacon.php'));
 });
 
+test('only exact Composer temporary downloads are excluded without changing vendor sources', (t) => {
+  const fixture = createWorkspace(t);
+  const firstTemporary = writeFile(
+    fixture.adminRoot,
+    'vendor/composer/tmp-1b31f7b6e47d87b96c35b925677afa0f.zip~',
+    '',
+  );
+  const secondTemporary = writeFile(
+    fixture.adminRoot,
+    'vendor/composer/tmp-a0.zip~',
+    '',
+  );
+  writeFile(fixture.adminRoot, 'vendor/composer/installed.php', '<?php return [];');
+  writeFile(fixture.adminRoot, 'vendor/package/tmp-deadbeef.zip~', 'outside composer');
+  writeFile(fixture.adminRoot, 'vendor/composer/tmp-NOT-HEX.zip~', 'nonmatching');
+
+  const result = assembleProduction(fixture);
+
+  for (const temporary of [firstTemporary, secondTemporary]) {
+    assert.equal(fs.existsSync(temporary), true);
+    assert.equal(
+      fs.existsSync(path.join(fixture.outputRoot, 'vendor/composer', path.basename(temporary))),
+      false,
+    );
+  }
+  assert.equal(fs.readFileSync(path.join(fixture.outputRoot, 'vendor/autoload.php'), 'utf8'), '<?php');
+  assert.equal(
+    fs.readFileSync(path.join(fixture.outputRoot, 'vendor/composer/installed.php'), 'utf8'),
+    '<?php return [];',
+  );
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'vendor/package/tmp-deadbeef.zip~')), true);
+  assert.equal(fs.existsSync(path.join(fixture.outputRoot, 'vendor/composer/tmp-NOT-HEX.zip~')), true);
+  assert.deepEqual(result.vendorExclusions.filter((entry) => entry.endsWith('.zip~')).sort(), [
+    path.join('composer', 'tmp-1b31f7b6e47d87b96c35b925677afa0f.zip~'),
+    path.join('composer', 'tmp-a0.zip~'),
+  ]);
+});
+
 test('existing Server temp and Undo state are not copied', (t) => {
   const fixture = createWorkspace(t);
   assembleProduction(fixture);

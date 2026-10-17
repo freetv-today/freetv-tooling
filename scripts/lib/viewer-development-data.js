@@ -125,12 +125,15 @@ function snapshot(target, fileSystem = fs, relative = '') {
   const stats = fileSystem.lstatSync(target);
   if (stats.isSymbolicLink()) throw new Error(`Development-data tree contains a symbolic link: ${target}`);
   if (stats.isFile()) {
-    return [[relative, crypto.createHash('sha256').update(fileSystem.readFileSync(target)).digest('hex')]];
+    return [['file', relative, crypto.createHash('sha256').update(fileSystem.readFileSync(target)).digest('hex')]];
   }
   if (!stats.isDirectory()) throw new Error(`Development-data tree contains an unsupported entry: ${target}`);
-  return fileSystem.readdirSync(target).sort().flatMap((name) => snapshot(
-    path.join(target, name), fileSystem, relative ? `${relative}/${name}` : name,
-  ));
+  return [
+    ['directory', relative],
+    ...fileSystem.readdirSync(target).sort().flatMap((name) => snapshot(
+      path.join(target, name), fileSystem, relative ? `${relative}/${name}` : name,
+    )),
+  ];
 }
 
 function markerRecord(paths) {

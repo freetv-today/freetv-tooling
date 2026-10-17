@@ -170,6 +170,41 @@ test('unsafe or mismatched generated entries are refused without touching protec
   assert.equal(fs.existsSync(path.join(fixture.distRoot, 'playlists')), true);
 });
 
+test('unexpected empty generated directories fail validation before any artifact is removed', async (t) => {
+  const fixture = createFixture(t);
+  await installViewerDevelopmentData(fixture);
+  const publicBefore = snapshot(fixture.publicRoot);
+  createApplicationBuild(fixture.distRoot);
+  simulateVitePublicCopy(fixture);
+  fs.mkdirSync(path.join(fixture.distRoot, 'playlists/unexpected-empty-directory'));
+  const distBefore = snapshot(fixture.distRoot);
+
+  assert.throws(
+    () => isolateViewerDevelopmentDataFromBuild(fixture),
+    /does not match its Tooling-managed source/u,
+  );
+  assert.deepEqual(snapshot(fixture.distRoot), distBefore);
+  assert.deepEqual(snapshot(fixture.publicRoot), publicBefore);
+  for (const name of DEVELOPMENT_ENTRIES) {
+    assert.equal(fs.existsSync(path.join(fixture.distRoot, name)), true);
+  }
+});
+
+test('matching legitimate empty directories survive installation and compare successfully', async (t) => {
+  const fixture = createFixture(t);
+  fs.mkdirSync(path.join(fixture.dataRoot, 'playlists/intentionally-empty'));
+
+  await installViewerDevelopmentData(fixture);
+  assert.equal(fs.statSync(path.join(fixture.publicRoot, 'playlists/intentionally-empty')).isDirectory(), true);
+  createApplicationBuild(fixture.distRoot);
+  simulateVitePublicCopy(fixture);
+
+  assert.equal(isolateViewerDevelopmentDataFromBuild(fixture).isolated, true);
+  assert.equal(fs.existsSync(path.join(fixture.distRoot, 'playlists')), false);
+  assert.equal(fs.statSync(path.join(fixture.publicRoot, 'playlists/intentionally-empty')).isDirectory(), true);
+  assert.equal(inspectViewerDevelopmentData(fixture).state, 'ready');
+});
+
 test('unrelated unexpected Viewer output remains subject to strict assembly rejection', async (t) => {
   const fixture = createFixture(t);
   await installViewerDevelopmentData(fixture);
