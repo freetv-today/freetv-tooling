@@ -140,6 +140,11 @@ as partial, unmarked, symlinked, invalidly marked, or interrupted transaction co
 Stopping development never removes the installed data; use the explicit cleanup command when you want to remove it.
 The interactive CLI offers the same all-services and Viewer-only workflows, plus Admin and PHP together.
 
+Viewer development data may remain installed during production builds. After Vite completes, Tooling validates the
+ownership marker and generated copies, then excludes only those matching development artifacts from `dist/`; the
+original files under `public/` remain unchanged. Production data still comes from validated Admin exports. Manual
+cleanup remains available through `npm run dev:clean-viewer-data`, but is not required before a production build.
+
 Interactive development selections open a separate terminal window and immediately return control to Clack. Use
 Ctrl+C in the corresponding development terminal to stop that supervised session; it does not stop the original
 Clack menu. The development terminal remains available after the session ends so startup or shutdown diagnostics

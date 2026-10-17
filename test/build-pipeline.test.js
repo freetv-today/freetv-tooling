@@ -95,6 +95,7 @@ test('Viewer and Admin build operations use exact commands, repositories, enviro
 
   const viewer = await runViewerBuild({
     toolingRoot: '/workspace/tooling', config, environment, commandRunner, logger,
+    developmentDataIsolator: () => ({ isolated: false }),
   });
   const admin = await runAdminBuild({
     toolingRoot: '/workspace/tooling', config, environment, commandRunner, logger,

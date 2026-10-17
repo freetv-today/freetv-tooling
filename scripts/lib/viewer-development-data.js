@@ -201,6 +201,46 @@ export function inspectViewerDevelopmentData({ toolingRoot, config, fileSystem =
   return { state: 'ready', paths };
 }
 
+export function isolateViewerDevelopmentDataFromBuild({
+  toolingRoot,
+  config,
+  fileSystem = fs,
+} = {}) {
+  const inspection = inspectViewerDevelopmentData({ toolingRoot, config, fileSystem });
+  if (inspection.state === 'absent') return { isolated: false, paths: inspection.paths };
+
+  const { paths } = inspection;
+  const distRoot = path.join(paths.viewerRoot, 'dist');
+  requirePath(distRoot, 'directory', 'FreeTV Viewer build output', fileSystem);
+  if (!isWithin(fileSystem.realpathSync(distRoot), fileSystem.realpathSync(paths.viewerRoot))) {
+    throw new Error('FreeTV Viewer build output resolves outside the Viewer repository');
+  }
+
+  const artifacts = [
+    ...MANAGED_ARTIFACTS,
+    { name: OWNERSHIP_MARKER, type: 'file' },
+  ];
+
+  // Validate every generated copy before removing anything. A familiar filename
+  // alone is not sufficient evidence that Vite copied Tooling-managed data.
+  for (const { name, type } of artifacts) {
+    const source = name === OWNERSHIP_MARKER ? markerPath(paths) : paths.destinations[name];
+    const generated = path.join(distRoot, name);
+    requirePath(generated, type, `Viewer build development-data copy ${name}`, fileSystem);
+    if (JSON.stringify(snapshot(source, fileSystem)) !== JSON.stringify(snapshot(generated, fileSystem))) {
+      throw new Error(`Viewer build development-data copy does not match its Tooling-managed source: ${generated}`);
+    }
+  }
+
+  try {
+    for (const { name } of artifacts) fileSystem.removeSync(path.join(distRoot, name));
+  } catch (error) {
+    throw new Error(`Could not isolate Tooling-managed development data from Viewer build output; the generated output may be partially cleaned and must not be assembled: ${error.message}`, { cause: error });
+  }
+
+  return { isolated: true, paths, distRoot };
+}
+
 export async function prepareViewerDevelopmentData({
   toolingRoot,
   config,

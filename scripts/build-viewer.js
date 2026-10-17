@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCommand } from './lib/command-runner.js';
+import { isolateViewerDevelopmentDataFromBuild } from './lib/viewer-development-data.js';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultToolingRoot = path.resolve(path.dirname(scriptPath), '..');
@@ -16,6 +17,7 @@ export async function runViewerBuild({
   environment = process.env,
   signal,
   commandRunner = runCommand,
+  developmentDataIsolator = isolateViewerDevelopmentDataFromBuild,
   logger = console,
 } = {}) {
   const viewerRoot = path.resolve(toolingRoot, config.repos.viewer);
@@ -24,6 +26,10 @@ export async function runViewerBuild({
     executable: 'npm', args: ['run', 'build'], cwd: viewerRoot,
     env: environment, stdio: 'inherit', signal,
   });
+  const isolation = developmentDataIsolator({ toolingRoot, config });
+  if (isolation.isolated) {
+    logger.log('Excluded Tooling-managed development data from the Viewer production build.');
+  }
   logger.log('FreeTV Viewer build complete.');
   return { ...result, repositoryRoot: viewerRoot };
 }
