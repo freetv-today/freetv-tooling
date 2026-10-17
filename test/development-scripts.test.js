@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -318,4 +319,30 @@ test('standalone development wrapper maps cancellation and startup failure exit 
     ...common,
     supervisor: async () => { throw new Error('startup fixture'); },
   }), 1);
+});
+
+test('development terminal Ctrl+C requests supervised shutdown and removes signal listeners', async () => {
+  const signals = new EventEmitter();
+  let resolveCompletion;
+  const completion = new Promise((resolve) => { resolveCompletion = resolve; });
+  const reasons = [];
+  const running = runDevelopmentEnvironmentCli({
+    toolingRoot, config, logger: { log() {}, error() {} }, signalSource: signals,
+    preflight: async () => {}, viewerDataPreparer: async () => {},
+    supervisor: async () => ({
+      completion,
+      stop(reason) {
+        reasons.push(reason);
+        resolveCompletion({ ...reason, stopped: true, unresolved: [], signalErrors: [] });
+        return completion;
+      },
+    }),
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  signals.emit('SIGINT');
+
+  assert.equal(await running, 130);
+  assert.deepEqual(reasons, [{ kind: 'cancelled', signal: 'SIGINT', exitCode: 130 }]);
+  assert.equal(signals.listenerCount('SIGINT'), 0);
+  assert.equal(signals.listenerCount('SIGTERM'), 0);
 });

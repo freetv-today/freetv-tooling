@@ -7,7 +7,8 @@ The interactive CLI invokes the existing command functions and preserves these s
 | `status` | finite, read-only | none | no confirmation |
 | `content:compare` | finite, read-only | one snapshot path | no confirmation |
 | `verify` | finite, read-only | assembled production directory | no confirmation |
-| `dev:*` | long-running | selected configured ports; port preflight mandatory; Viewer selections prepare managed development data | cancellation must use the development supervisor; shutdown never cleans Viewer data |
+| CLI development launch | detached terminal request | supported graphical terminal and validated selection | returns after the terminal process is spawned; never shares or manipulates Clack input |
+| `dev:*` | long-running | selected configured ports; port preflight mandatory; Viewer selections prepare managed development data | the development terminal owns cancellation through the existing supervisor; shutdown never cleans Viewer data |
 | `build:viewer`, `build:admin` | finite | configured repository | confirmation recommended because build output changes |
 | `stage:exports` | finite, disposable staging | Admin exporters | no durable publication claim |
 | `assemble` | finite, transactional | validated staged exports | confirmation recommended; report retained recovery state |
@@ -23,6 +24,10 @@ individual export/assembly/verification steps, Dataset validation/comparison/pub
 the complete Cleanup Tools category.
 
 Development navigation offers all services, Viewer only, or Admin and PHP together. Only selected ports are checked.
+Each CLI selection starts the existing Node development entry point in a separate terminal and immediately restores
+the Clack menu. A successful terminal launch is not a claim that service startup succeeded; port, data-preparation,
+and process diagnostics remain in the development terminal. Ctrl+C there is handled by the existing supervisor and
+does not signal the Clack process. No shared-terminal fallback is permitted when graphical terminal launch fails.
 Viewer-containing workflows automatically install development data only when all managed destinations are absent,
 reuse a complete valid Tooling-managed installation, and refuse partial, unmarked, symlinked, invalidly marked, or
 interrupted transaction state. Admin/PHP-only workflows do not touch Viewer data. Cleanup remains a separate,

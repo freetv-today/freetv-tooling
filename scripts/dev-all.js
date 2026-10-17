@@ -106,12 +106,13 @@ export async function runDevelopmentEnvironment({
 
 export async function runDevelopmentEnvironmentCli(options = {}) {
   let session;
+  const signalSource = options.signalSource ?? process;
   const onSigint = () => { void session?.stop({ kind: 'cancelled', signal: 'SIGINT', exitCode: 130 }); };
   const onSigterm = () => { void session?.stop({ kind: 'cancelled', signal: 'SIGTERM', exitCode: 143 }); };
   try {
     session = await runDevelopmentEnvironment(options);
-    process.once('SIGINT', onSigint);
-    process.once('SIGTERM', onSigterm);
+    signalSource.once('SIGINT', onSigint);
+    signalSource.once('SIGTERM', onSigterm);
     const result = await session.completion;
     if (!result.stopped) (options.logger ?? console).error(`Development shutdown incomplete: ${result.unresolved.join(', ')}`);
     return result.exitCode ?? 1;
@@ -119,8 +120,8 @@ export async function runDevelopmentEnvironmentCli(options = {}) {
     (options.logger ?? console).error(error.message);
     return 1;
   } finally {
-    process.removeListener('SIGINT', onSigint);
-    process.removeListener('SIGTERM', onSigterm);
+    signalSource.removeListener('SIGINT', onSigint);
+    signalSource.removeListener('SIGTERM', onSigterm);
   }
 }
 

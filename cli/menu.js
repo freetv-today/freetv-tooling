@@ -1,6 +1,6 @@
 import { runBuildAction, runDiagnosticAction } from './actions.js';
 import { runCleanupAction } from './cleanup-actions.js';
-import { runDevelopmentSession } from './development-session.js';
+import { launchDevelopmentTerminal } from './development-terminal.js';
 import { runDatasetAction, runProductionAction } from './workflow-actions.js';
 
 export const MAIN_MENU_OPTIONS = Object.freeze([
@@ -89,7 +89,6 @@ export async function runInteractiveCli({
   version,
   prompts,
   operations,
-  signalSource = process,
 } = {}) {
   prompts.intro(applicationName);
   prompts.note(version, 'Version');
@@ -122,21 +121,14 @@ export async function runInteractiveCli({
           showDevelopment = false;
           continue;
         }
-        const outcome = await runDevelopmentSession({
-          startEnvironment: operations?.runDevelopmentEnvironment,
-          selection: developmentSelection,
-          signalSource,
-          presentation: {
-            note: prompts.note, info: prompts.log.info,
-            success: prompts.log.success, error: prompts.log.error,
-          },
-        });
-        if (outcome.status !== 0) finalStatus = 1;
-        if (!outcome.returnToMenu) {
-          prompts.outro(outcome.status === 0
-            ? 'Development environment stopped after SIGTERM. Exiting Tooling.'
-            : 'Development process state is unresolved. Exiting Tooling.');
-          return finalStatus;
+        try {
+          await (operations?.launchDevelopmentTerminal ?? launchDevelopmentTerminal)({
+            selection: developmentSelection,
+          });
+          prompts.log.success('Development terminal launch requested. Startup diagnostics are shown in that terminal.');
+        } catch (error) {
+          finalStatus = 1;
+          prompts.log.error(`Development terminal launch failed: ${error.message}`);
         }
       }
       continue;

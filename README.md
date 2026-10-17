@@ -72,7 +72,7 @@ npm run freetv
 The seven main categories cover local development, Viewer/Admin builds, production assembly, Dataset workflows,
 cleanup tools, diagnostics, and Exit. The CLI can:
 
-* start all development services, the Viewer alone, or the Admin and PHP services together; Ctrl+C performs supervised shutdown and returns to the menu;
+* open all development services, the Viewer alone, or the Admin and PHP services together in a separate terminal window;
 * build Viewer or Admin locally, or run the complete production build;
 * validate or compare Dataset snapshots, publish an explicitly selected snapshot to the local `freetv-data`
   repository, and rebuild local First Run release packages;
@@ -83,7 +83,8 @@ Mutating operations request confirmation, with destructive confirmations default
 publication does not update the live website, deploy files, or create a GitHub release. Existing standalone npm
 commands remain available and independent of the CLI.
 
-The CLI uses Node and Clack APIs without Unix-specific terminal control and supports Linux, macOS, and Windows.
+Development terminal launching supports common Linux graphical terminals, Windows PowerShell, and macOS
+Terminal.app. The macOS strategy is implemented but has not been verified on a Mac.
 PHP and the sibling-repository dependencies described below must still be installed for operations that require them.
 
 Clone or download the four FreeTV repositories into the same parent directory. The default configuration expects this workspace layout:
@@ -138,6 +139,15 @@ absent. A complete, valid Tooling-managed installation is reused without being o
 as partial, unmarked, symlinked, invalidly marked, or interrupted transaction content—is refused for manual review.
 Stopping development never removes the installed data; use the explicit cleanup command when you want to remove it.
 The interactive CLI offers the same all-services and Viewer-only workflows, plus Admin and PHP together.
+
+Interactive development selections open a separate terminal window and immediately return control to Clack. Use
+Ctrl+C in the corresponding development terminal to stop that supervised session; it does not stop the original
+Clack menu. The development terminal remains available after the session ends so startup or shutdown diagnostics
+can be read. Linux supports `x-terminal-emulator`, GNOME Terminal, Xfce Terminal, MATE Terminal, Konsole, Kitty,
+Alacritty, and xterm. Set `FREETV_TERMINAL` to one of those executable names or paths to select it explicitly.
+Without a supported graphical terminal or `DISPLAY`/`WAYLAND_DISPLAY`, the CLI reports an error and does not fall
+back to sharing Clack's terminal. Windows uses PowerShell to open Node in a new window; macOS uses Terminal.app.
+The standalone npm development commands remain available in the current terminal.
 
 The default development ports are:
 

@@ -198,39 +198,34 @@ test('build success is presented only after the existing operation completes', a
   assert.equal(events.length, 1);
 });
 
-test('an unresolved development shutdown exits conservatively and prevents a second start', async () => {
-  const calls = [];
-  const prompts = promptFixture(['dev', 'all', 'all']);
-  const incomplete = {
-    records: [], stop: async () => {},
-    completion: Promise.resolve({
-      kind: 'cancelled', stopped: false, unresolved: ['Viewer'], signalErrors: ['fixture'], exitCode: 1,
-    }),
-  };
-  assert.equal(await runInteractiveCli({
-    applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
-    operations: { runDevelopmentEnvironment: async () => { calls.push('development'); return incomplete; } },
-  }), 1);
-  assert.deepEqual(calls, ['development']);
-  assert.match(prompts.events.at(-1)[1], /unresolved/u);
-});
-
-test('a confirmed development shutdown returns to its submenu without starting twice', async () => {
+test('a development terminal launch failure is reported and menu navigation continues', async () => {
   const calls = [];
   const prompts = promptFixture(['dev', 'all', 'back', 'exit']);
-  const stopped = {
-    stop: async () => {},
-    completion: Promise.resolve({
-      kind: 'cancelled', signal: 'SIGINT', stopped: true, unresolved: [], signalErrors: [], exitCode: 130,
-    }),
-  };
   assert.equal(await runInteractiveCli({
     applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
-    operations: { runDevelopmentEnvironment: async () => { calls.push('development'); return stopped; } },
+    operations: {
+      launchDevelopmentTerminal: async ({ selection }) => {
+        calls.push(selection);
+        throw new Error('terminal fixture');
+      },
+    },
+  }), 1);
+  assert.deepEqual(calls, ['all']);
+  assert.match(prompts.events.find(([kind]) => kind === 'error')[1], /launch failed.*terminal fixture/u);
+});
+
+test('successful development launch returns immediately to its submenu', async () => {
+  const calls = [];
+  const prompts = promptFixture(['dev', 'viewer', 'back', 'exit']);
+  assert.equal(await runInteractiveCli({
+    applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
+    operations: {
+      launchDevelopmentTerminal: async ({ selection }) => { calls.push(selection); },
+    },
   }), 0);
-  assert.deepEqual(calls, ['development']);
+  assert.deepEqual(calls, ['viewer']);
   assert.equal(prompts.events.some(([kind, message]) => kind === 'success'
-    && /Development environment stopped/u.test(message)), true);
+    && /launch requested/u.test(message)), true);
 });
 
 test('all three development menu choices pass the explicit service selection', async () => {
@@ -238,17 +233,34 @@ test('all three development menu choices pass the explicit service selection', a
   const prompts = promptFixture([
     'dev', 'all', 'viewer', 'admin', 'back', 'exit',
   ]);
-  const stopped = {
-    stop: async () => {},
-    completion: Promise.resolve({
-      kind: 'cancelled', signal: 'SIGINT', stopped: true, unresolved: [], signalErrors: [], exitCode: 130,
-    }),
-  };
   assert.equal(await runInteractiveCli({
     applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
     operations: {
-      runDevelopmentEnvironment: async ({ selection }) => { selections.push(selection); return stopped; },
+      launchDevelopmentTerminal: async ({ selection }) => { selections.push(selection); },
     },
   }), 0);
   assert.deepEqual(selections, ['all', 'viewer', 'admin']);
+});
+
+test('later development-terminal termination does not block or change Clack navigation', async () => {
+  let resolveTermination;
+  const termination = new Promise((resolve) => { resolveTermination = resolve; });
+  const prompts = promptFixture(['dev', 'viewer', 'admin', 'back', 'exit']);
+  const launches = [];
+
+  const status = await runInteractiveCli({
+    applicationName: 'FreeTV Tooling', version: '1.0.0', prompts,
+    operations: {
+      launchDevelopmentTerminal: async ({ selection }) => {
+        launches.push(selection);
+        return { termination };
+      },
+    },
+  });
+
+  assert.equal(status, 0);
+  assert.deepEqual(launches, ['viewer', 'admin']);
+  resolveTermination({ exitCode: 1 });
+  await termination;
+  assert.equal(prompts.events.at(-1)[0], 'outro');
 });
