@@ -176,7 +176,9 @@ test('development service definitions preserve commands, ports, repositories, an
   assert.equal(services[0].options.cwd, path.resolve(toolingRoot, config.repos.viewer));
   assert.equal(services[1].options.env.VITE_API_PROXY_TARGET, 'http://localhost:8123');
   assert.equal(services[2].options.env.PHP_CLI_SERVER_WORKERS, '4');
-  assert.equal(services.every(({ options }) => options.stdio === 'inherit'), true);
+  for (const service of services) {
+    assert.deepEqual(service.options.stdio, ['ignore', 'inherit', 'inherit']);
+  }
 });
 
 test('development service selection is explicit and preserves service order', () => {
@@ -194,6 +196,18 @@ test('development service selection is explicit and preserves service order', ()
   assert.throws(() => createDevelopmentServices({
     toolingRoot, config, environment: {}, selection: 'unknown',
   }), /Unsupported development service selection: unknown/u);
+});
+
+test('every supervised service selection isolates stdin and preserves visible output', () => {
+  for (const selection of ['viewer', 'admin', 'all']) {
+    const services = createDevelopmentServices({
+      toolingRoot, config, environment: {}, selection,
+    });
+    assert.equal(services.length > 0, true);
+    for (const service of services) {
+      assert.deepEqual(service.options.stdio, ['ignore', 'inherit', 'inherit']);
+    }
+  }
 });
 
 test('unselected development ports are neither resolved nor preflighted', async () => {

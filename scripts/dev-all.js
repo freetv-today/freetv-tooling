@@ -29,7 +29,10 @@ export function createDevelopmentServices({
   toolingRoot, config, environment = process.env, selection = 'all',
 }) {
   const selected = selectedServiceNames(selection);
-  const common = { detached: process.platform !== 'win32', stdio: 'inherit' };
+  const common = {
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'inherit', 'inherit'],
+  };
   const services = [];
   if (selected.includes('viewer')) {
     const viewerPort = resolveDevelopmentPort(
